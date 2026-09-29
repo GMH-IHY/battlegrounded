@@ -5,7 +5,10 @@
 -- Reads player input and feeds it to this character's CharacterMotor and Dash.
 -- Double-tap W: run. Space: jump; in the air press it again (or keep holding it) while moving
 -- into and along a wall to wall hop; press it right before landing from a high fall to roll.
--- Sprinting into obstacles vaults / climbs / slides automatically (AutoParkour). Shift: dash. M1 during a front dash: dash punch.
+-- Sprinting into obstacles vaults / climbs / slides automatically (AutoParkour). Shift: dash.
+-- M1: during a front dash the dash punch; during a side / back dash, late in a landing roll or in a
+-- Moth flight it cuts straight into a swing, keeping your momentum; otherwise a swing (M1Preview, the
+-- placeholder sword M1 until the combat system exists).
 -- Left Ctrl: race special (Moth: tap = wing flight, hold = charge + throw the lantern, press while it's in
 -- the air = suspend it, hold with it away = fly to it / to a tagged opponent). Race specials spend Stamina.
 -- Tab: shift lock (ShiftLock script).
@@ -24,6 +27,9 @@ movementFolder:WaitForChild("AutoParkour")
 movementFolder:WaitForChild("Stamina")
 movementFolder:WaitForChild("Lantern")
 movementFolder:WaitForChild("Sfx")
+movementFolder:WaitForChild("Controls")
+local combatFolder = ReplicatedStorage:WaitForChild("Combat")
+combatFolder:WaitForChild("M1Preview")
 
 local CharacterMotor = require(ReplicatedStorage.Movement.CharacterMotor)
 local Config = require(ReplicatedStorage.Movement.MovementConfig)
@@ -34,6 +40,8 @@ local AutoParkour = require(ReplicatedStorage.Movement.AutoParkour)
 local Stamina = require(ReplicatedStorage.Movement.Stamina)
 local Lantern = require(ReplicatedStorage.Movement.Lantern)
 local Sfx = require(ReplicatedStorage.Movement.Sfx)
+local Controls = require(ReplicatedStorage.Movement.Controls)
+local M1Preview = require(ReplicatedStorage.Combat.M1Preview)
 
 local DASH_KEYS: { [Enum.KeyCode]: boolean } = {
 	[Enum.KeyCode.LeftShift] = true,
@@ -76,6 +84,7 @@ local moth = Lantern.new(character, motor, stamina, function()
 	return dash:IsBusy() or wallHop:IsRunning() or parkourBusy() or landingRoll:IsRolling()
 end)
 raceSpecial = moth
+local m1 = M1Preview.new(character, motor)
 autoParkour:SetWallRunHook({
 	isRunning = function()
 		return wallHop:IsRunning()
@@ -101,6 +110,91 @@ local lastForwardTap = -math.huge
 local lastDeniedAt = -math.huge
 
 -- INPUT ----------------------------------------------------------------------
+-- Every key is a named action (Controls), so the in-Studio tests press the same code the keyboard does.
+
+-- M1: what a click does depends on what the body is doing (see the header).
+local function pressM1()
+	if moth:CancelCharge() or moth:OnM1() then
+		m1:Request()
+		return
+	end
+	if dash:IsFrontDashing() then
+		dash:Punch()
+		return
+	end
+	if dash:CancelIntoAttack() or landingRoll:CancelIntoAttack() then
+		m1:Request()
+		return
+	end
+	if dash:IsBusy() or landingRoll:IsRolling() or wallHop:IsRunning() or parkourBusy() then
+		return
+	end
+	m1:Request()
+end
+
+local function pressDash()
+	moth:CancelCharge()
+	if not dash:Request() and dash:GetCooldownRemaining() > 0.15 then
+		-- Pressed while it's still recharging: a short "no" (not spammable).
+		local now = os.clock()
+		if now - lastDeniedAt > 0.5 then
+			lastDeniedAt = now
+			Sfx.Play(character, "Denied", { volume = 0.7 })
+		end
+	end
+end
+
+local function pressForward()
+	forwardHeld = true
+	local now = os.clock()
+	if now - lastForwardTap <= Config.DoubleTapWindow then
+		motor:SetSprinting(true)
+	end
+	lastForwardTap = now
+end
+
+local function releaseForward()
+	forwardHeld = false
+	motor:SetSprinting(false)
+end
+
+local function pressJump()
+	moth:CancelCharge()
+	motor:SetJumpHeld(true)
+	local madeJump = motor:RequestJump()
+	wallHop:OnJumpPressed(madeJump)
+	landingRoll:OnJumpPressed(madeJump)
+	-- Pressed near the end of a dash or parkour move: jump right as it ends.
+	dash:OnJumpPressed()
+	autoParkour:OnJumpPressed()
+end
+
+local function releaseJump()
+	motor:SetJumpHeld(false)
+end
+
+local function nothing() end
+
+Controls.Register(character, {
+	press = {
+		Jump = pressJump,
+		Dash = pressDash,
+		Race = function()
+			moth:Press()
+		end,
+		Forward = pressForward,
+		M1 = pressM1,
+	},
+	release = {
+		Jump = releaseJump,
+		Dash = nothing,
+		Race = function()
+			moth:Release()
+		end,
+		Forward = releaseForward,
+		M1 = nothing,
+	},
+})
 
 table.insert(
 	connections,
@@ -109,44 +203,15 @@ table.insert(
 			return
 		end
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			-- selene: allow(if_same_then_else) -- order matters: each call only runs if the one before said no
-			if moth:CancelCharge() then
-				character:SetAttribute("M1RequestedAt", os.clock())
-			elseif moth:OnM1() then
-				-- M1 cancels a Moth flight and throws an M1 right away. The M1 system doesn't exist yet:
-				-- it should listen for this attribute (or replace this call).
-				character:SetAttribute("M1RequestedAt", os.clock())
-			else
-				dash:Punch()
-			end
+			pressM1()
 		elseif DASH_KEYS[input.KeyCode] then
-			moth:CancelCharge()
-			if not dash:Request() and dash:GetCooldownRemaining() > 0.15 then
-				-- Pressed while it's still recharging: a short "no" (not spammable).
-				local now = os.clock()
-				if now - lastDeniedAt > 0.5 then
-					lastDeniedAt = now
-					Sfx.Play(character, "Denied", { volume = 0.7 })
-				end
-			end
+			pressDash()
 		elseif input.KeyCode == RACE_SPECIAL_KEY then
 			moth:Press()
 		elseif input.KeyCode == Enum.KeyCode.W then
-			forwardHeld = true
-			local now = os.clock()
-			if now - lastForwardTap <= Config.DoubleTapWindow then
-				motor:SetSprinting(true)
-			end
-			lastForwardTap = now
+			pressForward()
 		elseif input.KeyCode == Enum.KeyCode.Space then
-			moth:CancelCharge()
-			motor:SetJumpHeld(true)
-			local madeJump = motor:RequestJump()
-			wallHop:OnJumpPressed(madeJump)
-			landingRoll:OnJumpPressed(madeJump)
-			-- Pressed near the end of a dash or parkour move: jump right as it ends.
-			dash:OnJumpPressed()
-			autoParkour:OnJumpPressed()
+			pressJump()
 		end
 	end)
 )
@@ -156,10 +221,9 @@ table.insert(
 	connections,
 	UserInputService.InputEnded:Connect(function(input: InputObject)
 		if input.KeyCode == Enum.KeyCode.W then
-			forwardHeld = false
-			motor:SetSprinting(false)
+			releaseForward()
 		elseif input.KeyCode == Enum.KeyCode.Space then
-			motor:SetJumpHeld(false)
+			releaseJump()
 		elseif input.KeyCode == RACE_SPECIAL_KEY then
 			moth:Release()
 		end
@@ -169,9 +233,8 @@ table.insert(
 table.insert(
 	connections,
 	UserInputService.WindowFocusReleased:Connect(function()
-		forwardHeld = false
-		motor:SetSprinting(false)
-		motor:SetJumpHeld(false)
+		releaseForward()
+		releaseJump()
 		moth:Release()
 	end)
 )
@@ -183,6 +246,8 @@ local function cleanup()
 		connection:Disconnect()
 	end
 	table.clear(connections)
+	Controls.Unregister(character)
+	m1:Destroy()
 	moth:Destroy()
 	stamina:Destroy()
 	autoParkour:Destroy()

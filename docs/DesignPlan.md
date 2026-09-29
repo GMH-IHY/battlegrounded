@@ -56,10 +56,12 @@ Movement is momentum-based and runs on the client (the player owns their charact
 
 **What the movement rework adds (phase 1):**
 
-- Side dash → M1 comes out immediately and cleanly; dash, wall hop and landing roll all cancel into attacks.
-- Transition animations (start, stop, turn, light / heavy landing) and more in-between poses at the start and end of every animation: choppy but smooth.
-- A stepped lean and tilt of the torso from acceleration and turning.
-- Small retro effects: sweat balls when running, dust cubes when landing and dashing.
+- Side or back dash → M1: the dash ends on the click, keeping its speed, and the swing starts that frame. A front dash's M1 is the dash punch (the future running lunge). M1 late in a landing roll (from 0.25 s) or during a Moth flight cuts into a swing too.
+- Transition clips (walk / sprint start, skid stop, sprint turn, light / running / heavy landing) and in-betweens at the start and end of every animation: choppy but smooth.
+- **Heavy landing:** falling at least 16 studs without a landing roll = 0.25 s of barely moving, no jump, no dash (MovementConfig HeavyLand*). The roll is how you skip it.
+- A stepped lean of the torso into turns and with speed changes (every character, visual only).
+- Small retro effects: sweat balls when running, dust cubes when landing hard and when a dash starts.
+- Until combat exists, M1 is a placeholder 3-hit sword swing with the real timings and no damage.
 
 ## Combat core
 
@@ -159,7 +161,7 @@ Each phase ends with a Studio playtest and a commit.
 | Phase | Scope |
 | --- | --- |
 | 0. Cleanup & foundation | Remove dead code, merge the place and animation tools, set up linting, write these docs. **Done Sep 29.** |
-| 1. Movement rework | Regenerate every movement animation with more in-between poses at the start and end, transition animations, torso lean, cancels into attacks, new Moth paper wings, sweat and dust effects. |
+| 1. Movement rework | Regenerate every movement animation with more in-between poses at the start and end, transition animations, torso lean, cancels into attacks, new Moth paper wings, sweat and dust effects. **Built Sep 29, waiting on a Studio playtest.** |
 | 2. Combat core + Sword + Dagger | State machine, move runner, hits / block / parry / counter-hit, stamina and burnout, get-up, juggle limit, scaling, status build-up, warning flashes, hit pause and screen shake, training dummy, sword and dagger models and moves. |
 | 3. Lotus Fungus | Meter and stages, every 2 / 3 / 4 variant, R and G, fungus arm and body growth, infection wrap and burst, the opponent's reactions. |
 | 4. Wind + Moth | Q push / pull and Drafted; lantern rework and flight in your own light. |
@@ -167,7 +169,7 @@ Each phase ends with a Studio playtest and a commit.
 
 ## Open questions
 
-- [ ] Movement self-test (`MovementSelfTest`, 2,971 lines): replace it with a smaller movement + combat test, or keep it?
-- [ ] What T does, if anything.
+- [x] Movement self-test: replaced by the F4 test panel (Tests > Suites), which covers the old checks plus the new ones.
+- [x] T: free, does nothing.
 - [ ] Final damage scaling numbers (after playtests).
 - [ ] Which element and magic system belong to each region (lore only; no gameplay effect).

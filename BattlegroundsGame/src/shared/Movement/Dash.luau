@@ -314,6 +314,14 @@ function Dash.Request(self: Dash, moveDirection: Vector3?, forward: Vector3?): b
 	if mode == "Air" and self.airDashesUsed >= Config.AirDashes then
 		return false
 	end
+	if self.motor:IsLandingLag() then
+		return false
+	end
+	-- An attack's wind-up and hit can't be dashed out of (its recovery can).
+	local attackPhase = self.character:GetAttribute("AttackPhase")
+	if attackPhase == "Startup" or attackPhase == "Active" then
+		return false
+	end
 
 	local camForward = forward or cameraForward(self.root)
 	camForward = flatten(camForward)
@@ -623,7 +631,8 @@ function Dash.IsFrontDashing(self: Dash): boolean
 	return self.phase == "Dashing" and self.kind == "Front"
 end
 
--- Why the last dash ended: "done", "jump" (dash-jump), "move" (handed to parkour), "cancel".
+-- Why the last dash ended: "done", "jump" (dash-jump), "move" (handed to parkour), "attack"
+-- (cancelled into an attack), "cancel".
 function Dash.GetLastEndReason(self: Dash): string
 	return self.lastEndReason
 end
@@ -684,6 +693,27 @@ function Dash._finish(self: Dash, keep: Vector3?)
 	if Config.RunAfterDash and self.forwardHeld() then
 		self.motor:SetSprinting(true)
 	end
+end
+
+-- M1 during a side or back dash: the dash ends right now, handing its current speed to the motor
+-- (you slide into the swing), and the attack takes over. Returns whether it did. A front dash's M1
+-- is the dash punch instead (Punch), and the punch itself can't be cancelled.
+function Dash.CancelIntoAttack(self: Dash): boolean
+	if self.phase ~= "Dashing" or self.kind == "Front" then
+		return false
+	end
+	local carry = self:GetCurrentVelocity()
+	local cap = Config.MomentumMaxSpeed * self.motor:GetHealthSpeedScale()
+	if carry.Magnitude > cap then
+		carry = carry.Unit * cap
+	end
+	for _, track in self.tracks do
+		track:Stop(0)
+	end
+	self.jumpPressAt = -math.huge
+	self:_finish(carry)
+	self.lastEndReason = "attack"
+	return true
 end
 
 -- Ends a dash early (e.g. getting hit, once combat exists).

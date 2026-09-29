@@ -6,8 +6,9 @@ Sequences go to ServerStorage > RBX_ANIMSAVES > AnimRig_R6, where the Animation 
 and StudioAnimationMirror copies them for playtests. A sequence with the same name is replaced;
 any other sequence (for example one you made in Studio) is left alone.
 
-Workspace > AnimRig_R6 (the anchored R6 dummy the editor poses) is created if it's missing.
---rig rebuilds it from scratch, which drops anything attached to it by hand.
+Workspace > AnimRig_R6 (the anchored R6 dummy the editor poses) is created if it's missing, and
+its Moth wings / antennae are rebuilt from MothPartsData every time (so they always match the game).
+--rig rebuilds the whole rig from scratch, which drops anything attached to it by hand.
 
 Every animation module lists (time, pose) keys. A pose maps joint names to either an authored
 dict (rig.py: pitch/yaw/roll/offset, converted with rig.transform) or a ready 4x4 Transform
@@ -25,6 +26,7 @@ import rbxlx  # noqa: E402
 from rbxlx import item, add, add_cf, add_v3, child, fmt  # noqa: E402
 from rig import JOINTS, SIZES, transform, cf, ry  # noqa: E402
 from catalog import ALL  # noqa: E402
+from preview import load_moth_parts  # noqa: E402
 
 PLACE = os.path.join(os.path.dirname(os.path.dirname(HERE)), "BattlegroundsGame.rbxlx")
 RIG_NAME = "AnimRig_R6"
@@ -81,6 +83,68 @@ def build_rig():
     item("Animator", "Animator", hum)
     add(mp, "Ref", "PrimaryPart", parts["HumanoidRootPart"].get("referent"))
     return model
+
+
+def _cf_of(part):
+    el = part.find("Properties/CoordinateFrame[@name='CFrame']")
+    m = np.eye(4)
+    m[:3, 3] = [float(el.find(k).text) for k in "XYZ"]
+    for i in range(3):
+        for j in range(3):
+            m[i, j] = float(el.find(f"R{i}{j}").text)
+    return m
+
+
+def attach_moth_parts(rig):
+    """Puts the Moth wings / antennae (same data the game uses) on the editor rig, replacing old ones,
+    so the Animation Editor can pose them."""
+    data = load_moth_parts()
+    if not data["joints"]:
+        return
+    parts = {rbxlx.name_of(c): c for c in rbxlx.children(rig) if c.get("class") == "Part"}
+    old = child(rig, name="MothWings")
+    if old is not None:
+        rig.remove(old)
+    names = {j["name"] for j in data["joints"]}
+    for p in parts.values():
+        for c in rbxlx.children(p):
+            if c.get("class") == "Motor6D" and rbxlx.name_of(c) in names:
+                p.remove(c)
+    model, _ = item("Model", "MothWings", rig)
+    bones = {}
+    for j in data["joints"]:
+        p0 = parts[j["part0"]]
+        bone_cf = _cf_of(p0) @ j["c0"]
+        bone, bp = item("Part", j["name"], model)
+        add_cf(bp, "CFrame", bone_cf)
+        add_v3(bp, "size", (0.2, 0.2, 0.2))
+        for k in ("Anchored", "CanCollide", "CanQuery", "CanTouch"):
+            add(bp, "bool", k, "false")
+        add(bp, "bool", "Massless", "true")
+        add(bp, "float", "Transparency", 1)
+        _, mp = item("Motor6D", j["name"], p0)
+        add_cf(mp, "C0", j["c0"])
+        add_cf(mp, "C1", np.eye(4))
+        add(mp, "Ref", "Part0", p0.get("referent"))
+        add(mp, "Ref", "Part1", bone.get("referent"))
+        bones[j["name"]] = (bone, bone_cf)
+    for s in data["parts"]:
+        bone, bone_cf = bones[s["bone"]]
+        part, pp = item("WedgePart" if s["kind"] == "wedge" else "Part", "Piece", model)
+        add_cf(pp, "CFrame", bone_cf @ s["rel"])
+        add_v3(pp, "size", s["size"])
+        for k in ("Anchored", "CanCollide", "CanQuery", "CanTouch", "CastShadow"):
+            add(pp, "bool", k, "false")
+        add(pp, "bool", "Massless", "true")
+        add(pp, "Color3uint8", "Color3uint8", rbxlx.color_int(s["color"]))
+        add(pp, "token", "Material", 288 if s["neon"] else 272)
+        add(pp, "token", "TopSurface", 0)
+        add(pp, "token", "BottomSurface", 0)
+        _, wp = item("Weld", "Weld", part)
+        add_cf(wp, "C0", s["rel"])
+        add_cf(wp, "C1", np.eye(4))
+        add(wp, "Ref", "Part0", bone.get("referent"))
+        add(wp, "Ref", "Part1", part.get("referent"))
 
 
 # ---------------- animations ------------------------------------------------------------
@@ -162,6 +226,7 @@ def main(argv):
         rig = build_rig()
         ws.append(rig)
         print("built", RIG_NAME)
+    attach_moth_parts(rig)
     saves = child(ss, name="RBX_ANIMSAVES")
     if saves is None:
         saves, _ = item("Model", "RBX_ANIMSAVES", ss)

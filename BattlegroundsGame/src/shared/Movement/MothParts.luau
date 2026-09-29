@@ -89,6 +89,17 @@ function MothParts.Attach(character: Model): Model
 		part.Color = spec.Color
 		part.Material = spec.Material
 		quiet(part)
+		if spec.Texture ~= "" then
+			-- The paper image on both faces of a wing plate, stretched once across it.
+			for _, face in { Enum.NormalId.Front, Enum.NormalId.Back } do
+				local texture = Instance.new("Texture")
+				texture.Texture = spec.Texture
+				texture.Face = face
+				texture.StudsPerTileU = spec.Size.X
+				texture.StudsPerTileV = spec.Size.Y
+				texture.Parent = part
+			end
+		end
 		part.CFrame = bone.CFrame * spec.CFrame
 		local weld = Instance.new("Weld")
 		weld.Part0 = bone

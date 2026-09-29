@@ -42,9 +42,9 @@
 --   Characters at least WallHopScaleFrom times normal size hop proportionally faster/farther.
 --
 -- Animations: plays "WallRunRight" / "WallRunLeft" while running and "WallHopRight" /
--- "WallHopLeft" on the kick, by which side the wall is on (Right = wall on your right). If a sided
--- one doesn't exist it falls back to "WallRun" / "WallHop", and without those the normal jump/fall
--- animations show. Each loads only if it exists (AnimationConfig.Ids or a Studio KeyframeSequence).
+-- "WallHopLeft" on the kick, by which side the wall is on (Right = wall on your right). Each loads
+-- only if it exists (AnimationConfig.Ids or a Studio KeyframeSequence); without it the normal
+-- jump / fall animations show.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -157,7 +157,7 @@ function WallHop.new(character: Model, motor: CharacterMotor.CharacterMotor, isB
 	local tracks: { [string]: AnimationTrack } = {}
 	local animator = humanoid:FindFirstChildOfClass("Animator")
 	if animator then
-		for _, name in { "WallRun", "WallHop", "WallRunRight", "WallRunLeft", "WallHopRight", "WallHopLeft" } do
+		for _, name in { "WallRunRight", "WallRunLeft", "WallHopRight", "WallHopLeft" } do
 			if animationExists(name) then
 				local animation = AnimationLibrary.Get(name)
 				if animation then
@@ -489,9 +489,9 @@ function WallHop._startRun(self: WallHop, normal: Vector3, along: Vector3)
 	end
 end
 
--- "WallRun" / "WallHop" for the side the wall is on (e.g. "WallRunRight"), else the plain one.
+-- "WallRun" / "WallHop" for the side the wall is on (e.g. "WallRunRight").
 function WallHop._sidedTrack(self: WallHop, base: string): AnimationTrack?
-	return self.tracks[base .. self.wallSide] or self.tracks[base]
+	return self.tracks[base .. self.wallSide]
 end
 
 function WallHop._stopRunTrack(self: WallHop)

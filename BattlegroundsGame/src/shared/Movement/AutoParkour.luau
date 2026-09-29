@@ -907,7 +907,7 @@ function AutoParkour._setJumpLock(self: AutoParkour, locked: boolean)
 		return
 	end
 	self.jumpLocked = locked
-	self.humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, not locked)
+	self.motor:SetJumpLock("Parkour", locked)
 end
 
 function AutoParkour._start(self: AutoParkour, plan: Plan, speed: number)
