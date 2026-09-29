@@ -1,7 +1,7 @@
 --!strict
 -- Animation suite: every animation in AnimationConfig loads, and the locomotion transitions play
 -- in the right order (read from the character attribute "LocoAnim" that Animate keeps): start
--- running, skid to a stop, turn around, and nothing popping through Idle in between.
+-- running, stop (straight to Idle, no skid), turn around, and nothing popping through Idle in between.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -48,7 +48,7 @@ local tests: { Harness.Test } = {
 			t:move(Vector3.zero, false)
 			t:wait(0.6)
 			local stop = sequence(record)
-			t:check("running -> stopping plays the SprintStop skid, then Idle", string.find(stop, "Sprint > SprintStop > Idle") ~= nil, stop)
+			t:check("running -> stopping goes straight to Idle (no skid)", string.find(stop, "Sprint > Idle") ~= nil, stop)
 
 			t:move(Vector3.zAxis, true)
 			t:wait(0.8)
@@ -67,26 +67,10 @@ local tests: { Harness.Test } = {
 			t:check("standing -> walking plays WalkStart, then the walk", string.find(walk, "Idle > WalkStart > WalkForward") ~= nil, walk)
 		end,
 	},
-	{
-		name = "Moving again cuts a stop clip short",
-		run = function(t)
-			t:teleport(OPEN, Vector3.zAxis)
-			t:move(Vector3.zAxis, true)
-			t:wait(0.8)
-			local record = t:recordAttribute("LocoAnim")
-			t:move(Vector3.zero, false)
-			t:wait(0.08)
-			t:move(Vector3.zAxis, false)
-			t:wait(0.3)
-			local seq = sequence(record)
-			-- Straight into walking (WalkStart or the walk itself), never back through Idle first.
-			t:check("SprintStop gives way to walking straight away", string.find(seq, "SprintStop > Walk") ~= nil, seq)
-		end,
-	},
 }
 
 return {
 	name = "Animation",
-	description = "Every animation loads; start / stop / turn / landing clips in order",
+	description = "Every animation loads; start / stop / turn clips in order",
 	tests = tests,
 }

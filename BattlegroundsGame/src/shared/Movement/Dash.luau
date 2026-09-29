@@ -5,18 +5,15 @@
 -- Shift dash for one character. Runs on the client, next to CharacterMotor (the player owns
 -- their character's physics). All numbers are in MovementConfig.
 --
---   Front dash (no keys, or W): long slide toward where the camera looks. M1 at any point
---     during it throws the dash punch: the slide carries on while you wind up the jab, then
---     you're stuck in heavy endlag. Hits early in the dash ragdoll instead of stun.
+--   Front dash (no keys, or W): long slide toward where the camera looks. M1 during it is the
+--     sword's running M1 (the lunge): the dash hands its speed over and the lunge takes it.
 --   Quick-step (A, D, S or a diagonal): short slide in the held direction; the body keeps
 --     facing the camera and plays the side / back animation.
 --   Both follow the camera while they travel, so turning curves the dash.
 --
 -- While a dash runs, CharacterMotor is suspended; when it ends, the motor picks up the
--- dash's speed (momentum carries). Combat doesn't exist yet: a punch that connects is sent to
--- the server (DashPunchServer), which checks it and shows a hit report on the target.
+-- dash's speed (momentum carries). No dash while the server has you stunned ("Stunned").
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
@@ -24,10 +21,9 @@ local Config = require(script.Parent.MovementConfig)
 local Perf = require(script.Parent.Perf)
 local CharacterMotor = require(script.Parent.CharacterMotor)
 local AnimationLibrary = require(script.Parent.AnimationLibrary)
-local Sfx = require(script.Parent.Sfx)
 
 export type Kind = "Front" | "Left" | "Right" | "Back"
-type Phase = "Idle" | "Dashing" | "Punch"
+type Phase = "Idle" | "Dashing"
 
 -- Dash direction rules (Isaac, Sep 26). A dash only ever goes in ONE of four directions:
 --   W held (W, W+A, W+D)          -> front dash, straight forward
@@ -49,7 +45,6 @@ local TRACK_NAMES: { [string]: string } = {
 	Left = "DashLeft",
 	Right = "DashRight",
 	Back = "DashBack",
-	Punch = "DashPunch",
 }
 
 local function flatten(v: Vector3): Vector3
@@ -74,7 +69,6 @@ type DashData = {
 	velocity: LinearVelocity,
 	align: AlignOrientation,
 	tracks: { [string]: AnimationTrack },
-	overlapParams: OverlapParams,
 	castParams: RaycastParams,
 	wallRayHeights: { number },
 	maxRise: number,
@@ -103,11 +97,6 @@ type DashData = {
 	jumpPressAt: number,
 	groundedAt: number,
 	lastEndReason: string,
-
-	punchStart: number,
-	punchSpeed: number,
-	punchHit: boolean,
-	punchResult: string,
 }
 
 export type Dash = typeof(setmetatable({} :: DashData, Dash))
@@ -161,10 +150,6 @@ function Dash.new(character: Model, motor: CharacterMotor.CharacterMotor, forwar
 		end
 	end
 
-	local overlapParams = OverlapParams.new()
-	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
-	overlapParams.FilterDescendantsInstances = { character }
-
 	local castParams = RaycastParams.new()
 	castParams.FilterType = Enum.RaycastFilterType.Exclude
 	castParams.FilterDescendantsInstances = { character }
@@ -183,7 +168,6 @@ function Dash.new(character: Model, motor: CharacterMotor.CharacterMotor, forwar
 		velocity = velocity,
 		align = align,
 		tracks = tracks,
-		overlapParams = overlapParams,
 		castParams = castParams,
 		wallRayHeights = wallRayHeights,
 		maxRise = 0,
@@ -209,11 +193,6 @@ function Dash.new(character: Model, motor: CharacterMotor.CharacterMotor, forwar
 		jumpPressAt = -math.huge,
 		groundedAt = -math.huge,
 		lastEndReason = "",
-
-		punchStart = 0,
-		punchSpeed = 0,
-		punchHit = false,
-		punchResult = "",
 	}, Dash)
 
 	table.insert(
@@ -262,14 +241,9 @@ function Dash.GetKind(self: Dash): Kind
 	return self.kind
 end
 
--- Distance covered by the last finished dash (including a punch lunge).
+-- Distance covered by the last finished dash.
 function Dash.GetLastDistance(self: Dash): number
 	return self.lastDistance
-end
-
--- "" until a punch has resolved; then "miss", "stun" or "ragdoll".
-function Dash.GetLastPunchResult(self: Dash): string
-	return self.punchResult
 end
 
 -- ACTIONS ------------------------------------------------------------------------
@@ -304,6 +278,7 @@ function Dash.Request(self: Dash, moveDirection: Vector3?, forward: Vector3?): b
 		or self.character:GetAttribute("WallRunning") == true
 		or self.character:GetAttribute("Parkour") ~= nil
 		or self.character:GetAttribute("Flying") ~= nil
+		or self.character:GetAttribute("Stunned") == true
 	then
 		return false
 	end
@@ -312,9 +287,6 @@ function Dash.Request(self: Dash, moveDirection: Vector3?, forward: Vector3?): b
 		return false
 	end
 	if mode == "Air" and self.airDashesUsed >= Config.AirDashes then
-		return false
-	end
-	if self.motor:IsLandingLag() then
 		return false
 	end
 	-- An attack's wind-up and hit can't be dashed out of (its recovery can).
@@ -375,7 +347,6 @@ function Dash.Request(self: Dash, moveDirection: Vector3?, forward: Vector3?): b
 	self.lastDashTime = now
 	self.jumpPressAt = -math.huge
 	self.groundedAt = if self:_onGround() then now else -math.huge
-	self.punchResult = ""
 	if mode == "Air" then
 		self.airDashesUsed += 1
 	end
@@ -394,26 +365,6 @@ function Dash.Request(self: Dash, moveDirection: Vector3?, forward: Vector3?): b
 	self.character:SetAttribute("IFramesUntil", Workspace:GetServerTimeNow() + Config.DashIFrames)
 
 	self:_playOnly(kind)
-	return true
-end
-
--- M1. Only does something during a front dash. Returns whether the punch started.
-function Dash.Punch(self: Dash): boolean
-	if self.phase ~= "Dashing" or self.kind ~= "Front" then
-		return false
-	end
-	local now = os.clock()
-	local t = math.clamp((now - self.startTime) / self.duration, 0, 1)
-	local current = self.startSpeed + (self.endSpeed - self.startSpeed) * t
-	-- Slowing to a stop over the wind-up covers speed * windup / 2; make sure it lunges at least
-	-- DashPunchMinLunge.
-	local minSpeed = 2 * Config.DashPunchMinLunge / math.max(Config.DashPunchWindup, 1e-3)
-	self.phase = "Punch"
-	self.punchStart = now
-	self.punchSpeed = math.max(current, minSpeed)
-	self.punchHit = false
-	self.character:SetAttribute("DashKind", "Punch")
-	self:_playOnly("Punch")
 	return true
 end
 
@@ -529,69 +480,10 @@ function Dash._step(self: Dash, dt: number)
 		end
 		self:_applyMotion(self:_forward(), speed, dt)
 		self:_limitRise()
-	elseif self.phase == "Punch" then
-		local elapsed = now - self.punchStart
-		local windup = Config.DashPunchWindup
-		local activeEnd = windup + Config.DashPunchActive
-		if elapsed < windup then
-			local t = math.clamp((elapsed + dt / 2) / windup, 0, 1)
-			self:_applyMotion(self:_forward(), self.punchSpeed * (1 - t), dt)
-			self:_limitRise()
-		else
-			-- Planted: no more sliding, and turning the camera no longer turns you.
-			self.velocity.PlaneVelocity = Vector2.zero
-			self:_limitRise()
-			if elapsed < activeEnd then
-				if not self.punchHit then
-					self:_checkHit()
-				end
-			else
-				if self.punchResult == "" then
-					self.punchResult = "miss"
-				end
-				local endlag = Config.DashPunchEndlag
-				if elapsed >= activeEnd + endlag then
-					self:_finish()
-				end
-			end
-		end
 	end
 end
 
-function Dash._checkHit(self: Dash)
-	local size: Vector3 = Config.DashPunchHitbox
-	local box = self.root.CFrame * CFrame.new(0, 0, -(size.Z / 2 + 0.5))
-	local parts = Workspace:GetPartBoundsInBox(box, size, self.overlapParams)
-	local best: Model? = nil
-	local bestDistance = math.huge
-	for _, part in parts do
-		local model = part:FindFirstAncestorOfClass("Model")
-		local targetHumanoid = if model then model:FindFirstChildOfClass("Humanoid") else nil
-		if model and targetHumanoid and targetHumanoid.Health > 0 and model ~= self.character then
-			local distance = (part.Position - self.root.Position).Magnitude
-			if distance < bestDistance then
-				bestDistance = distance
-				best = model
-			end
-		end
-	end
-	if not best then
-		return
-	end
-	self.punchHit = true
-	Sfx.PlayAny(self.character, { "DashPunchHit", "DashPunchHit2" })
-	local ragdoll = self.traveled < Config.FrontDashDistance * Config.DashPunchRagdollShare
-	self.punchResult = if ragdoll then "ragdoll" else "stun"
-
-	local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-	local remote = remotes and remotes:FindFirstChild("DashPunch")
-	if remote and remote:IsA("RemoteEvent") then
-		remote:FireServer(best, ragdoll)
-	end
-end
-
--- Space during a dash (not the punch, whose endlag is the commitment) is a DASH-JUMP at any
--- point: the dash ends right away and you jump with its current speed. Off the ground it still
+-- Space during a dash is a DASH-JUMP at any point: the dash ends right away and you jump with its current speed. Off the ground it still
 -- works within DashJumpCoyote of the dash touching the ground; in a pure air dash the press is
 -- kept and jumps the moment the dash touches down (or on landing, if it was near the end).
 function Dash.OnJumpPressed(self: Dash)
@@ -683,7 +575,7 @@ function Dash._finish(self: Dash, keep: Vector3?)
 	self.character:SetAttribute("DashKind", nil)
 
 	-- Hand the speed back to the motor so it carries on: the dash's end speed, in the direction
-	-- it was going (a punch ends planted).
+	-- it was going.
 	local carry = if keep then keep
 		elseif wasDashing then yawRotate(self:_forward(), self.relativeYaw) * self.endSpeed
 		else Vector3.zero
@@ -695,11 +587,11 @@ function Dash._finish(self: Dash, keep: Vector3?)
 	end
 end
 
--- M1 during a side or back dash: the dash ends right now, handing its current speed to the motor
--- (you slide into the swing), and the attack takes over. Returns whether it did. A front dash's M1
--- is the dash punch instead (Punch), and the punch itself can't be cancelled.
-function Dash.CancelIntoAttack(self: Dash): boolean
-	if self.phase ~= "Dashing" or self.kind == "Front" then
+-- An attack during a dash: the dash ends right now, handing its current speed to the motor
+-- (you slide into the swing), and the attack takes over. Returns whether it did. Side and back
+-- dashes always cancel; a front dash only when includeFront (its M1 is the running lunge).
+function Dash.CancelIntoAttack(self: Dash, includeFront: boolean?): boolean
+	if self.phase ~= "Dashing" or (self.kind == "Front" and not includeFront) then
 		return false
 	end
 	local carry = self:GetCurrentVelocity()
@@ -716,8 +608,11 @@ function Dash.CancelIntoAttack(self: Dash): boolean
 	return true
 end
 
--- Ends a dash early (e.g. getting hit, once combat exists).
+-- Ends a dash early (getting hit).
 function Dash.Cancel(self: Dash)
+	if self.phase == "Idle" then
+		return
+	end
 	for _, track in self.tracks do
 		track:Stop(0)
 	end

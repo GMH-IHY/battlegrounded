@@ -2,7 +2,7 @@
 -- BodyLean (LocalScript)
 -- Location: StarterPlayer > StarterPlayerScripts > BodyLean
 --
--- Tilts every character into its turns and leans it with its speed changes, on top of whatever
+-- Tilts every character very slightly into its turns and with its speed changes, on top of whatever
 -- animation plays: banking into a curve while running, a lean forward when speeding up and back
 -- when braking. It's visual only (nothing about movement changes) and computed on each client for
 -- every character from its velocity, so nothing is sent over the network.
@@ -14,11 +14,12 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
-local BANK_PER_TURN = 0.12 -- degrees of tilt per degree/second of turning
-local MAX_BANK = 14 -- degrees
-local LEAN_PER_ACCEL = 0.12 -- degrees of forward lean per stud/s² of speed change
-local MAX_LEAN = 8 -- degrees
-local STEP_DEGREES = 3
+-- Kept extremely subtle: a hint of weight, never a pose of its own.
+local BANK_PER_TURN = 0.025 -- degrees of tilt per degree/second of turning
+local MAX_BANK = 3 -- degrees
+local LEAN_PER_ACCEL = 0.02 -- degrees of forward lean per stud/s² of speed change
+local MAX_LEAN = 2 -- degrees
+local STEP_DEGREES = 1
 local UPDATE_RATE = 15 -- per second
 local MIN_SPEED = 6 -- studs/s: slower than this, no lean
 -- Faster than running = a dash or a parkour move. The "busy" attributes below are only set on the

@@ -3,7 +3,9 @@
     python tools/animations/preview.py <out.png> [Name ...]
 
 Poses that key only some joints are drawn over the rest pose. The Moth's wings and antennae are
-drawn from the same data the game builds them from (src/shared/Movement/MothPartsData.luau).
+drawn from the same data the game builds them from (src/shared/Movement/MothPartsData.luau), and so
+are the sword (on its animated SwordGrip bone), the sheath and the dagger (in the left hand for the
+Dagger* animations, on the hip otherwise): src/shared/Combat/WeaponModelsData.luau.
 The renderer is a tiny flat-shaded z-buffer, so it needs only numpy and Pillow.
 """
 import math
@@ -20,6 +22,7 @@ from rig import JOINTS, SIZES, inv, transform, pose  # noqa: E402
 from catalog import ALL  # noqa: E402
 
 MOTH_DATA = os.path.join(HERE, "..", "..", "src", "shared", "Movement", "MothPartsData.luau")
+WEAPON_DATA = os.path.join(HERE, "..", "..", "src", "shared", "Combat", "WeaponModelsData.luau")
 R6 = ["RootJoint", "Neck", "Right Shoulder", "Left Shoulder", "Right Hip", "Left Hip"]
 BODY_COLORS = {"Torso": (40, 90, 170), "Head": (245, 205, 48), "Right Arm": (245, 205, 48),
                "Left Arm": (245, 205, 48), "Right Leg": (60, 140, 70), "Left Leg": (60, 140, 70)}
@@ -93,12 +96,25 @@ def load_moth_parts(path=MOTH_DATA):
     return {"joints": joints, "parts": parts}
 
 
+def load_weapons(path=WEAPON_DATA):
+    """Parses the generated WeaponModelsData module: the SwordGrip bone, the weld mounts, the parts."""
+    if not os.path.exists(path):
+        return {"joints": [], "mounts": {}, "parts": []}
+    text = open(path, encoding="utf-8").read()
+    joints_block = text[text.index("local Joints"):text.index("local Mounts")]
+    mounts_block = text[text.index("local Mounts"):text.index("local Parts")]
+    pat = r'Name = "(\w+)", Part0 = "([\w ]+)", C0 = CFrame\.new\(([^)]*)\)'
+    joints = [{"name": n, "part0": p0, "c0": _cframe(_floats(c))} for n, p0, c in re.findall(pat, joints_block)]
+    mounts = {n: {"part0": p0, "c0": _cframe(_floats(c))} for n, p0, c in re.findall(pat, mounts_block)}
+    return {"joints": joints, "mounts": mounts, "parts": load_moth_parts(path)["parts"]}
+
+
 # ---------------- posing ----------------------------------------------------------------
 def joint_transform(joint, v):
     return transform(joint, v) if isinstance(v, dict) else v
 
 
-def world_pieces(keyed, extras):
+def world_pieces(keyed, extras, weapons=None, dagger_drawn=False):
     """Everything to draw for one pose, in world space (standing R6 root at y = 3)."""
     world = {"HumanoidRootPart": np.array([[1, 0, 0, 0], [0, 1, 0, 3], [0, 0, 1, 0], [0, 0, 0, 1]], float)}
     for j in R6:
@@ -112,6 +128,16 @@ def world_pieces(keyed, extras):
                 for j in extras["joints"]}
         for s in extras["parts"]:
             pieces.append(dict(m=bone[s["bone"]] @ s["rel"], size=s["size"], color=s["color"], kind=s["kind"],
+                               neon=s["neon"]))
+    if weapons and weapons["joints"]:
+        frame = {j["name"]: world[j["part0"]] @ j["c0"] @ joint_transform(j["name"], keyed.get(j["name"], np.eye(4)))
+                 for j in weapons["joints"]}
+        mounts = weapons["mounts"]
+        dagger = mounts["DaggerHand" if dagger_drawn else "DaggerHip"]
+        frame["Dagger"] = world[dagger["part0"]] @ dagger["c0"]
+        frame["Sheath"] = world[mounts["Sheath"]["part0"]] @ mounts["Sheath"]["c0"]
+        for s in weapons["parts"]:
+            pieces.append(dict(m=frame[s["bone"]] @ s["rel"], size=s["size"], color=s["color"], kind=s["kind"],
                                neon=s["neon"]))
     return pieces
 
@@ -175,13 +201,14 @@ def poses_to_draw(anim):
 
 def sheet(anims, out):
     extras = load_moth_parts()
+    weapons = load_weapons()
     rows = []
     for a in anims:
         tiles = []
         keys = poses_to_draw(a)
         for idx, (t, keyed) in enumerate(keys):
             hold = (keys[idx + 1][0] if idx + 1 < len(keys) else a["keys"][-1][0]) - t
-            pieces = world_pieces(keyed, extras)
+            pieces = world_pieces(keyed, extras, weapons, a["name"].startswith("Dagger"))
             tile = Image.new("RGB", (TILE_W, TILE_H * len(VIEWS) + LABEL_H), (40, 40, 40))
             for i, (_, yaw, pitch) in enumerate(VIEWS):
                 tile.paste(render(pieces, yaw, pitch), (0, LABEL_H + i * TILE_H))

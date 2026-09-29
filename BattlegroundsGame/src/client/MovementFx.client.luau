@@ -3,11 +3,13 @@
 -- Location: StarterPlayer > StarterPlayerScripts > MovementFx
 --
 -- Small retro movement effects for every character nearby (docs/art/ArtDirection.md):
---   sweat  small blue balls popping off the head while running
---   dust   grey cubes kicked out at the feet on a hard landing and when a dash starts
--- Each client draws them from what it can see (speeds replicate; the owner-only attributes like
--- "Sprinting" don't), so nothing is sent over the network. Every effect moves in steps (FxRate
--- updates per second, no tweening), like the animations. Parts are pooled.
+--   sweat  small blue balls popping off the head while the character is burnt out (the server's
+--          "Burnout" attribute, which replicates)
+--   dust   a low-poly grey cloud at the feet on a hard landing and when a dash starts: a few
+--          faceted puffs (two cubes turned against each other) that swell, drift and fade in steps
+-- Each client draws them from what it can see, so nothing extra is sent over the network. Every
+-- effect moves in steps (FX_RATE updates per second, no tweening), like the animations. Parts are
+-- pooled.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -17,15 +19,16 @@ local FX_RATE = 20 -- effect updates per second (the step size)
 local MAX_DISTANCE = 150 -- no effects for characters farther than this from the camera
 local GRAVITY = 60 -- studs/s² for sweat drops (lighter than real: they arc)
 
-local SWEAT_SPEED = 21 -- running at least this fast sweats (run speed is 26)
-local SWEAT_INTERVAL = 0.32 -- seconds between drops
+local SWEAT_INTERVAL = 0.3 -- seconds between drops while burnt out
 local SWEAT_SIZE = 0.22
 local SWEAT_LIFE = 0.35
 local SWEAT_COLOR = Color3.fromRGB(110, 190, 255)
 
 local DUST_COLOR = Color3.fromRGB(190, 186, 176)
 local LAND_IMPACT = 45 -- falling at least this fast (studs/s) when landing kicks up dust
-local HEAVY_IMPACT = 95 -- ... this fast: a bigger ring
+local BIG_IMPACT = 95 -- ... this fast: a bigger cloud
+local PUFF_LIFE = 0.45
+local PUFF_DRAG = 6 -- per second: puffs slow down as they drift
 local DASH_JUMP = 22 -- horizontal speed jumping up by this much in one frame = a dash started
 local DASH_MIN_SPEED = 40
 -- In the air, by Humanoid state (it replicates for every character; FloorMaterial isn't reliable
@@ -36,16 +39,23 @@ local AIR_STATES: { [Enum.HumanoidStateType]: boolean } = {
 	[Enum.HumanoidStateType.FallingDown] = true,
 }
 
+-- A particle is one or more parts moving together. "drop" particles shrink as they fall; "puff"
+-- particles swell to their full size, then shrink and fade (a cloud).
 type Particle = {
-	part: Part,
+	parts: { Part },
+	offsets: { CFrame },
+	cframe: CFrame,
 	velocity: Vector3,
 	gravity: number,
-	shrink: number,
+	drag: number,
+	size: number,
+	kind: "drop" | "puff",
 	life: number,
 	age: number,
 }
 
 type Watch = {
+	character: Model,
 	root: BasePart,
 	head: BasePart?,
 	humanoid: Humanoid,
@@ -90,19 +100,66 @@ local function release(part: Part)
 	table.insert(pool, part)
 end
 
-local function spawn(shape: Enum.PartType, size: number, color: Color3, cframe: CFrame, velocity: Vector3, gravity: number, life: number)
-	local part = take(shape)
-	part.Size = Vector3.one * size
+local function place(p: Particle)
+	for i, part in p.parts do
+		part.CFrame = p.cframe * p.offsets[i]
+	end
+end
+
+local function resize(p: Particle, size: number, transparency: number)
+	for _, part in p.parts do
+		part.Size = Vector3.one * math.max(size, 0.05)
+		part.Transparency = transparency
+	end
+end
+
+local function spawnDrop(size: number, color: Color3, position: Vector3, velocity: Vector3)
+	local part = take(Enum.PartType.Ball)
 	part.Color = color
-	part.CFrame = cframe
-	table.insert(particles, {
-		part = part,
+	local p: Particle = {
+		parts = { part },
+		offsets = { CFrame.identity },
+		cframe = CFrame.new(position),
 		velocity = velocity,
-		gravity = gravity,
-		shrink = size / math.max(life * FX_RATE, 1),
-		life = life,
+		gravity = GRAVITY,
+		drag = 0,
+		size = size,
+		kind = "drop",
+		life = SWEAT_LIFE,
 		age = 0,
-	})
+	}
+	resize(p, size, 0)
+	place(p)
+	table.insert(particles, p)
+end
+
+-- One faceted puff: two cubes, the second turned 45° on two axes, so together they read as a
+-- chunky low-poly ball.
+local function spawnPuff(size: number, position: Vector3, velocity: Vector3)
+	local a, b = take(Enum.PartType.Block), take(Enum.PartType.Block)
+	local shade = rng:NextNumber(0.9, 1.05)
+	local color = Color3.new(
+		math.min(DUST_COLOR.R * shade, 1),
+		math.min(DUST_COLOR.G * shade, 1),
+		math.min(DUST_COLOR.B * shade, 1)
+	)
+	a.Color, b.Color = color, color
+	local spin = CFrame.Angles(rng:NextNumber(0, 6.28), rng:NextNumber(0, 6.28), rng:NextNumber(0, 6.28))
+	local p: Particle = {
+		parts = { a, b },
+		offsets = { CFrame.identity, CFrame.Angles(math.rad(45), math.rad(45), 0) },
+		cframe = CFrame.new(position) * spin,
+		velocity = velocity,
+		gravity = 0,
+		drag = PUFF_DRAG,
+		size = size,
+		kind = "puff",
+		life = PUFF_LIFE * rng:NextNumber(0.85, 1.15),
+		age = 0,
+	}
+	resize(p, size * 0.5, 0)
+	place(p)
+	table.insert(particles, p)
 end
 
 local function sweat(watch: Watch)
@@ -113,26 +170,26 @@ local function sweat(watch: Watch)
 	local look = watch.root.CFrame
 	local side = if rng:NextNumber() < 0.5 then -1 else 1
 	local origin = head.Position + look.RightVector * (0.55 * side) + Vector3.new(0, 0.2, 0)
-	local velocity = look.RightVector * (side * rng:NextNumber(3, 6)) - look.LookVector * rng:NextNumber(4, 8)
+	local velocity = look.RightVector * (side * rng:NextNumber(3, 6)) - look.LookVector * rng:NextNumber(1, 3)
 		+ Vector3.new(0, rng:NextNumber(8, 12), 0)
-	spawn(Enum.PartType.Ball, SWEAT_SIZE, SWEAT_COLOR, CFrame.new(origin), velocity, GRAVITY, SWEAT_LIFE)
+	spawnDrop(SWEAT_SIZE, SWEAT_COLOR, origin, velocity)
 end
 
+-- A cloud of `count` puffs at the feet: a ring (landing) or a spray behind (dash start).
 local function dust(watch: Watch, count: number, spread: number, size: number, behind: boolean)
 	local root = watch.root
-	local feet = root.Position - Vector3.new(0, 2.8, 0)
+	local feet = root.Position - Vector3.new(0, 2.6, 0)
 	for i = 1, count do
 		local angle
 		if behind then
 			local back = -root.CFrame.LookVector
-			angle = math.atan2(back.X, back.Z) + rng:NextNumber(-0.7, 0.7)
+			angle = math.atan2(back.X, back.Z) + rng:NextNumber(-0.8, 0.8)
 		else
 			angle = (i / count) * math.pi * 2 + rng:NextNumber(-0.3, 0.3)
 		end
 		local out = Vector3.new(math.sin(angle), 0, math.cos(angle))
-		local velocity = out * spread * rng:NextNumber(0.8, 1.2) + Vector3.new(0, rng:NextNumber(2, 5), 0)
-		local cframe = CFrame.new(feet + out * 0.6) * CFrame.Angles(rng:NextNumber(0, 6.28), rng:NextNumber(0, 6.28), 0)
-		spawn(Enum.PartType.Block, size * rng:NextNumber(0.8, 1.2), DUST_COLOR, cframe, velocity, 0, 0.25)
+		local velocity = out * spread * rng:NextNumber(0.8, 1.2) + Vector3.new(0, rng:NextNumber(1.5, 3.5), 0)
+		spawnPuff(size * rng:NextNumber(0.8, 1.25), feet + out * 0.7, velocity)
 	end
 end
 
@@ -144,6 +201,7 @@ local function track(character: Model)
 	end
 	local head = character:FindFirstChild("Head")
 	watched[character] = {
+		character = character,
 		root = root,
 		head = if head and head:IsA("BasePart") then head else nil,
 		humanoid = humanoid,
@@ -176,20 +234,20 @@ local function watchCharacters(now: number)
 		elseif watch.airborne then
 			-- Just landed: dust by how hard.
 			local impact = -watch.lowestVy
-			if near and impact >= HEAVY_IMPACT then
-				dust(watch, 10, 14, 0.7, false)
+			if near and impact >= BIG_IMPACT then
+				dust(watch, 6, 12, 1.6, false)
 			elseif near and impact >= LAND_IMPACT then
-				dust(watch, 6, 9, 0.5, false)
+				dust(watch, 4, 8, 1.1, false)
 			end
 			watch.lowestVy = 0
 		end
 		watch.airborne = airborne
 
 		if near and not airborne and flatSpeed >= DASH_MIN_SPEED and flatSpeed - lastFlat >= DASH_JUMP then
-			dust(watch, 4, 7, 0.45, true)
+			dust(watch, 3, 6, 1, true)
 		end
 
-		if near and not airborne and flatSpeed >= SWEAT_SPEED and flatSpeed < DASH_MIN_SPEED and now >= watch.nextSweat then
+		if near and watch.character:GetAttribute("Burnout") == true and now >= watch.nextSweat then
 			watch.nextSweat = now + SWEAT_INTERVAL * rng:NextNumber(0.8, 1.2)
 			sweat(watch)
 		end
@@ -203,14 +261,27 @@ local function stepParticles(dt: number)
 		local p = particles[i]
 		p.age += dt
 		if p.age >= p.life then
-			release(p.part)
+			for _, part in p.parts do
+				release(part)
+			end
 			table.remove(particles, i)
-		else
-			p.velocity -= Vector3.new(0, p.gravity * dt, 0)
-			p.part.CFrame += p.velocity * dt
-			local size = math.max(p.part.Size.X - p.shrink, 0.05)
-			p.part.Size = Vector3.one * size
+			continue
 		end
+		p.velocity -= Vector3.new(0, p.gravity * dt, 0)
+		p.velocity *= math.max(1 - p.drag * dt, 0)
+		p.cframe += p.velocity * dt
+		local t = p.age / p.life
+		if p.kind == "drop" then
+			resize(p, p.size * (1 - t), 0)
+		elseif t < 0.35 then
+			-- Swell in steps to full size.
+			resize(p, p.size * (0.5 + t / 0.35 * 0.5), 0)
+		else
+			-- Shrink a little and fade out in steps.
+			local fade = (t - 0.35) / 0.65
+			resize(p, p.size * (1 - fade * 0.4), math.floor(fade * 4) / 4 * 0.8)
+		end
+		place(p)
 	end
 end
 

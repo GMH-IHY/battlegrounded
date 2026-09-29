@@ -129,3 +129,24 @@ def plant(p, floor=0.0):
 def planted(keys, floor=0.0):
     """Plants every pose of a key list (ground moves: crouches really are low, nothing hovers)."""
     return [(t, plant(p, floor)) for t, p in keys]
+
+
+# ---------------- sword wrist ------------------------------------------------------------
+REST_FLEX = 25  # the grip bone's C0 already tips the blade this far (weapons.py HAND)
+def grip(flex=0.0, side=0.0, twist=0.0):
+    """The SwordGrip bone's Transform (a wrist; tools/models/weapons.py). flex is the blade's angle
+    from the arm's forward toward the arm's own line: 0 = straight out of the front of the fist,
+    90 = the blade continues the arm (a thrust, a flat cut), negative cocks it back over the hand.
+    With nothing keyed it rests at REST_FLEX. side + tips it toward the character's right (the arm's
+    +X), twist turns the edge about the blade."""
+    from rig import rx, ry, rz
+    m = np.eye(4)
+    m[:3, :3] = rx(-(flex - REST_FLEX)) @ rz(-side) @ ry(twist)
+    return m
+
+
+def with_grip(p, flex=0.0, side=0.0, twist=0.0):
+    """A copy of pose p with the sword wrist keyed."""
+    out = dict(p)
+    out["SwordGrip"] = grip(flex, side, twist)
+    return out

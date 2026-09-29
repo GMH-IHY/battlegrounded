@@ -10,8 +10,12 @@
 -- Tests play the game the way a player does: keys go through Controls (the same functions the
 -- keyboard calls), movement through Humanoid:Move with Roblox's own controls switched off, and
 -- Space held means Humanoid.Jump every frame (what Roblox's control script does). Before every test
--- the character is reset: keys released, standing on the ground, full health and stamina, camera
--- back to normal. Anything a test creates with t:temp() is removed after it.
+-- the character is reset: keys released, standing on the ground, full health and stamina, no
+-- cooldowns, camera back to normal. Anything a test creates with t:temp() is removed after it.
+--
+-- Combat: the server owns fights, so combat tests read the server's state (t:server(model) returns
+-- a Fighter snapshot) and drive the training dummies through the Studio Debug remote
+-- (t:dummy(name, mode, cframe) puts one in place, t:debug(op, ...) for anything else).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -27,7 +31,8 @@ local AutoParkour = require(Movement:WaitForChild("AutoParkour"))
 local Lantern = require(Movement:WaitForChild("Lantern"))
 local Stamina = require(Movement:WaitForChild("Stamina"))
 local Controls = require(Movement:WaitForChild("Controls"))
-local M1Preview = require(Combat:WaitForChild("M1Preview"))
+local CombatClient = require(Combat:WaitForChild("CombatClient"))
+local CombatRemotes = require(Combat:WaitForChild("CombatRemotes"))
 
 local player = Players.LocalPlayer
 
@@ -58,7 +63,7 @@ type ContextData = {
 	parkour: AutoParkour.AutoParkour,
 	lantern: Lantern.Lantern,
 	stamina: Stamina.Stamina,
-	m1: M1Preview.M1Preview,
+	combat: CombatClient.CombatClient,
 	actions: Controls.Actions,
 	camera: Camera,
 	result: Result,
@@ -250,17 +255,62 @@ end
 -- Records every change of the character attribute `name` (e.g. "LocoAnim") until the returned
 -- function is called, which gives back the list of values in order (nil shows as "-").
 function Context.recordAttribute(self: Context, name: string): () -> { string }
+	return self:recordAttributeOn(self.character, name)
+end
+
+-- The same for any instance (a dummy's "CombatState").
+function Context.recordAttributeOn(self: Context, instance: Instance, name: string): () -> { string }
 	local seen: { string } = {}
 	local function add()
-		local value = self.character:GetAttribute(name)
+		local value = instance:GetAttribute(name)
 		table.insert(seen, if value == nil then "-" else tostring(value))
 	end
 	add()
-	local connection = self.character:GetAttributeChangedSignal(name):Connect(add)
+	local connection = instance:GetAttributeChangedSignal(name):Connect(add)
 	return function()
 		connection:Disconnect()
 		return seen
 	end
+end
+
+-- COMBAT ----------------------------------------------------------------------------------------
+
+-- The Studio Debug remote (CombatServer): test helpers on the server.
+function Context.debug(self: Context, op: string, a: any?, b: any?): any
+	return CombatRemotes.Get().Debug:InvokeServer(op, a, b)
+end
+
+-- The server's view of a fighter (yours by default): state, move, frame, stamina, combo...
+function Context.server(self: Context, model: Model?): { [string]: any }
+	local snapshot = self:debug("State", model or self.character)
+	return if typeof(snapshot) == "table" then snapshot else {}
+end
+
+-- A training dummy by name (Workspace > TrainingDummies), reset to full health at `cframe`
+-- (default: where it stands) in `mode`.
+function Context.dummy(self: Context, name: string, mode: string?, cframe: CFrame?): Model
+	local folder = Workspace:WaitForChild("TrainingDummies", 10)
+	local model = folder and folder:WaitForChild(name, 10)
+	assert(model and model:IsA("Model"), "no dummy " .. name)
+	self:debug("ResetDummy", name, cframe)
+	self:debug("DummyMode", name, mode or "Stand")
+	task.wait(0.15)
+	return model
+end
+
+-- Stands `studs` in front of a dummy, facing it.
+function Context.faceDummy(self: Context, dummy: Model, studs: number)
+	local root = dummy:FindFirstChild("HumanoidRootPart") :: BasePart
+	local look = root.CFrame.LookVector
+	local spot = root.Position + Vector3.new(look.X, 0, look.Z).Unit * studs + Vector3.new(0, 1, 0)
+	self:teleport(spot, (root.Position - spot) * Vector3.new(1, 0, 1))
+end
+
+-- Waits until the attribute `name` on `model` equals `value`.
+function Context.waitAttribute(self: Context, model: Instance, name: string, value: any, timeout: number): boolean
+	return self:waitFor(function()
+		return model:GetAttribute(name) == value
+	end, timeout)
 end
 
 -- RUNNING ---------------------------------------------------------------------------------------
@@ -290,10 +340,10 @@ local function makeContext(result: Result): (Context?, string?)
 	local parkour = AutoParkour.Get(character)
 	local lantern = Lantern.Get(character)
 	local stamina = Stamina.Get(character)
-	local m1 = M1Preview.Get(character)
+	local combat = CombatClient.Get(character)
 	local actions = Controls.Get(character)
 	local camera = Workspace.CurrentCamera
-	if not (humanoid and root and root:IsA("BasePart") and motor and dash and hop and roll and parkour and lantern and stamina and m1 and actions and camera) then
+	if not (humanoid and root and root:IsA("BasePart") and motor and dash and hop and roll and parkour and lantern and stamina and combat and actions and camera) then
 		return nil, "character's movement isn't ready yet"
 	end
 	local context = setmetatable({
@@ -307,7 +357,7 @@ local function makeContext(result: Result): (Context?, string?)
 		parkour = parkour,
 		lantern = lantern,
 		stamina = stamina,
-		m1 = m1,
+		combat = combat,
 		actions = actions,
 		camera = camera,
 		result = result,
@@ -322,9 +372,11 @@ local function reset(t: Context)
 	t.actions.release.Jump()
 	t.actions.release.Race()
 	t.actions.release.Forward()
+	t.actions.release.Block()
 	t.jumpHeld = false
 	t:stop()
-	t.m1:Cancel()
+	t.combat:ResetForTest()
+	t:debug("Reset")
 	t.camera.CameraType = Enum.CameraType.Custom
 	t.humanoid.Health = t.humanoid.MaxHealth
 	t.stamina:Set(t.stamina:GetMax())

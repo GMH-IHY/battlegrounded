@@ -2,7 +2,7 @@
 -- Moth suite: the paper wings on the character, Left Ctrl (tap = wing flight, hold = charge +
 -- throw, press in the air = suspend, hold with the lantern away = fly inside its light or to a
 -- tagged opponent), M1 ending a flight, the throw landing where the preview said, and hits on the
--- DashTestDummy. Ctrl goes through Controls ("Race").
+-- training dummy (DummyStand). Ctrl goes through Controls ("Race").
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -102,7 +102,7 @@ local tests: { Harness.Test } = {
 			t:press("M1")
 			local short = (t.root.Position - start).Magnitude
 			t:check("M1 ends the flight early and swings", t.lantern:GetLastFlightEnd() == "m1" and short < Config.WingFlightDistance * 0.6
-				and t.m1:GetPhase() ~= "Idle", string.format("ended by %s after %.1f studs, swing %s", t.lantern:GetLastFlightEnd(), short, t.m1:GetPhase()))
+				and t.combat:GetPhase() ~= "Idle", string.format("ended by %s after %.1f studs, swing %s", t.lantern:GetLastFlightEnd(), short, t.combat:GetPhase()))
 			t:grounded(8)
 			t:teleport(BASE, INWARD)
 			t.stamina:Set(t.stamina:GetMax())
@@ -234,11 +234,15 @@ local tests: { Harness.Test } = {
 			t:check("its first impact flashes", t.lantern:HasBurst())
 			t.lantern:SetAimForTest(nil)
 
-			local dummy = Workspace:FindFirstChild("DashTestDummy")
+			local folder = Workspace:FindFirstChild("TrainingDummies")
+			local dummy = folder and folder:FindFirstChild("DummyStand")
+			if dummy and dummy:IsA("Model") then
+				t:dummy("DummyStand")
+			end
 			local dummyRoot = dummy and dummy:FindFirstChild("HumanoidRootPart")
 			local dummyHumanoid = dummy and dummy:FindFirstChildOfClass("Humanoid")
 			if not (dummy and dummy:IsA("Model") and dummyRoot and dummyRoot:IsA("BasePart") and dummyHumanoid) then
-				t:log("no DashTestDummy in Workspace: hit checks skipped")
+				t:log("no training dummy (Workspace > TrainingDummies > DummyStand): hit checks skipped")
 				return
 			end
 			t.lantern:ResetForTest()

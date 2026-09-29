@@ -1,5 +1,5 @@
 """Locomotion: the loops Animate picks from every frame, plus the short transition clips it plays
-between them (start running, skid to a stop, turn around, land) so a state change never jumps
+between them (start walking or running, turn around, land) so a state change never jumps
 straight from one loop into another.
 
 Loops end with a copy of their first pose (timing.cycle); one-shots hold their last pose. Every
@@ -148,7 +148,7 @@ LOOPS = [IDLE_ANIM, WALK_ANIM, SPRINT_ANIM, JUMP_ANIM, FALL_ANIM, CLIMB_ANIM]
 # =========================================================================================
 # TRANSITIONS (Movement priority, one-shots). Animate plays one of these in the locomotion slot
 # when the state changes, then hands over to the loop. They're visual only: control is never
-# delayed (except LandHeavy, whose lag is gameplay: CharacterMotor HeavyLandLag).
+# delayed.
 # =========================================================================================
 
 # WALK START (0.1 s): from standing, a small weight shift onto the first step, ends on the walk
@@ -173,21 +173,6 @@ SPRINT_START = seq("SprintStart", MOVEMENT, False, planted(timeline([
     *tween(start_push, run_stride, QUICK_OUT, 0.03),
     (run_stride, 0.05),
 ])), "Push off: low lean-in, drive leg pushes back, arms load, into the first stride.", ground=True)
-
-# SPRINT STOP (0.36 s): a skid. The body leans back against the speed, the lead foot braces out
-# in front, the arms fly forward for balance; then it rises and settles into Idle.
-skid_brace = P(lean=-14, dy=-0.25, head_lean=8, ra=(48, 18), la=(34, 14), rl=(34, 3), ll=(-18, 3))
-skid_deep = P(lean=-22, dy=-0.4, head_lean=14, ra=(62, 22), la=(50, 18), rl=(42, 3), ll=(-22, 3))
-skid_recover = P(lean=-3, dy=-0.1, head_lean=2, ra=(16, 8), la=(10, 8), rl=(12, 2), ll=(-8, 2))
-SPRINT_STOP = seq("SprintStop", MOVEMENT, False, planted(timeline([
-    (skid_brace, 0.05),
-    *tween(skid_brace, skid_deep, ONE, 0.03),
-    (skid_deep, 0.08),
-    *tween(skid_deep, skid_recover, EVEN, 0.04),
-    (skid_recover, 0.05),
-    *tween(skid_recover, idle_rest, SETTLE, 0.03),
-    (idle_rest, 0.02),
-])), "Skid: lean back, brace the lead foot, arms fly forward; rise and settle into Idle.", ground=True)
 
 # SPRINT TURN (0.22 s): turning around at speed. Plant, dip and lean into the new direction with
 # the arms swinging across, then push into a stride.
@@ -220,20 +205,5 @@ LAND_RUN = seq("LandRun", MOVEMENT, False, planted(timeline([
     (run_stride, 0.05),
 ])), "Absorb mid-stride, straight back into the run.", ground=True)
 
-# LAND HEAVY (0.42 s): a long fall without a landing roll. Deep impact crouch with one knee
-# forward and a hand slapped down, held a beat (this is the landing lag), then a heavy rise.
-heavy_impact = T(lean=34, dy=-0.9, head=(-26, 0, 0), ra=(70, 22), la=(20, 30), rl=(70, 6), ll=(-38, 6))
-heavy_hold = T(lean=30, dy=-0.85, head=(-24, 0, 0), ra=(64, 20), la=(26, 28), rl=(66, 6), ll=(-34, 6))
-heavy_rise = T(lean=12, dy=-0.3, head=(-8, 0, 0), ra=(24, 10), la=(14, 12), rl=(30, 3), ll=(-14, 3))
-LAND_HEAVY = seq("LandHeavy", MOVEMENT, False, planted(timeline([
-    (heavy_impact, 0.06),
-    (heavy_hold, 0.12),
-    *tween(heavy_hold, heavy_rise, SLOW_IN, 0.04),
-    (heavy_rise, 0.06),
-    *tween(heavy_rise, idle_rest, SETTLE, 0.03),
-    (idle_rest, 0.02),
-])), "Deep impact crouch, knee forward and a hand down, held (landing lag), heavy rise to Idle.",
-    ground=True)
-
-TRANSITIONS = [WALK_START, SPRINT_START, SPRINT_STOP, SPRINT_TURN, LAND_LIGHT, LAND_RUN, LAND_HEAVY]
+TRANSITIONS = [WALK_START, SPRINT_START, SPRINT_TURN, LAND_LIGHT, LAND_RUN]
 ALL = LOOPS + TRANSITIONS

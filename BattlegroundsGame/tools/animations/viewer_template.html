@@ -101,7 +101,7 @@
       <div class="list" id="list-dash"></div>
     </div>
     <div>
-      <div class="group-label">Movement, parkour, Moth, M1</div>
+      <div class="group-label">Movement, parkour, Moth, combat</div>
       <div class="list" id="list-move"></div>
     </div>
   </aside>
@@ -134,6 +134,7 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 const DATA = __DATA__;
+const EXTRAS = __EXTRAS__; // weapon pieces: W0, W1, ... (sizes / colours)
 // Studs travelled by the character while an animation plays (from MovementConfig), for "Move with it".
 const TRAVEL = {
   DashForward: { dir: [0, 0, -1], dist: 25, time: 0.45 },
@@ -186,6 +187,15 @@ for (const name of Object.keys(SIZES)) {
   rig.add(mesh);
   parts[name] = mesh;
 }
+// Weapons (sword, sheath, dagger): flat boxes placed the same way.
+EXTRAS.forEach((e, i) => {
+  const [x, y, z] = e.size;
+  const color = (e.color[0] << 16) | (e.color[1] << 8) | e.color[2];
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(x, y, z), new THREE.MeshLambertMaterial({ color }));
+  mesh.matrixAutoUpdate = false;
+  rig.add(mesh);
+  parts["W" + i] = mesh;
+});
 // Face on the front (-Z) of the head so facing is obvious from any angle.
 const face = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.28, 0.06), new THREE.MeshBasicMaterial({ color: 0x1a1a1a }));
 face.position.set(0, 0.12, -0.64);

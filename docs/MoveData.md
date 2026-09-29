@@ -1,6 +1,8 @@
 # Move Data — first build
 
-Draft, Sep 29, 2026. Every number is a placeholder chosen so the rules in [DesignPlan.md](DesignPlan.md) fit together; playtests tune them. When the combat code exists, these tables move into ModuleScripts and this page describes them.
+Draft, Sep 29, 2026. Every number is a placeholder chosen so the rules in [DesignPlan.md](DesignPlan.md) fit together; playtests tune them.
+
+**In the game (phase 2):** the global rules and stamina are `ReplicatedStorage > Combat > CombatConfig`; the Sword and Dagger tables are `Combat > MoveSets > Sword / Dagger` (plus what the tables here don't list: hit pause per move, pushback, the step / lunge distance, the slash shape). `python -m pytest tests` checks these tables against the move sets, so change both together. Lotus, Wind and Moth are still design only.
 
 ## Conventions
 

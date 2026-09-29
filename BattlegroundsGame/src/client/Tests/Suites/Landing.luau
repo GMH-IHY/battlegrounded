@@ -1,7 +1,7 @@
 --!strict
 -- Landing suite: the landing roll (when it happens, distance by fall height, momentum and aiming,
--- rolling off ledges and into walls, the roll-jump) and the heavy landing (a long fall without a
--- roll: HeavyLandLag with no jumping or dashing, which a roll skips), plus the landing clips.
+-- rolling off ledges and into walls, the roll-jump), long falls without a roll leaving you free
+-- to act at once (there's no landing lag), plus the landing clips.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -21,7 +21,6 @@ type Drop = {
 	jumpedAfter: boolean,
 	fall: number,
 	info: string,
-	lagSeen: boolean,
 }
 
 -- Drops the character `height` studs above `ground` with `horizontal` speed.
@@ -36,7 +35,6 @@ local function drop(t: Context, ground: Vector3, height: number, horizontal: Vec
 	t.root.AssemblyLinearVelocity = horizontal
 	local pressed, released, boosted = false, false, false
 	local pressAt = 0
-	local lagSeen = false
 	local t0 = os.clock()
 	while t.motor:GetMode() ~= "Ground" or os.clock() - t0 < 0.15 do
 		if os.clock() - t0 > 6 then
@@ -87,7 +85,6 @@ local function drop(t: Context, ground: Vector3, height: number, horizontal: Vec
 	local t2 = os.clock()
 	while os.clock() - t2 < 0.5 do
 		t.humanoid:Move(move, false)
-		lagSeen = lagSeen or t.motor:IsLandingLag()
 		if style == "hold" and os.clock() - pressAt > 1.2 and t.jumpHeld then
 			t:release("Jump")
 		end
@@ -113,7 +110,6 @@ local function drop(t: Context, ground: Vector3, height: number, horizontal: Vec
 		jumpedAfter = jumpedAfter,
 		fall = t.roll:GetLastFall(),
 		info = t.roll:GetLastInfo(),
-		lagSeen = lagSeen,
 	}
 end
 
@@ -172,30 +168,23 @@ local tests: { Harness.Test } = {
 		end,
 	},
 	{
-		name = "Heavy landing: lag without a roll, none with one",
+		name = "A long fall without a roll: no landing lag",
 		run = function(t)
-			local fall = Config.HeavyLandHeight + 6
+			t:waitDashReady()
 			t:teleport(OPEN, Vector3.zAxis)
 			local record = t:recordAttribute("LocoAnim")
-			t.root.CFrame += Vector3.new(0, fall, 0)
+			t.root.CFrame += Vector3.new(0, 30, 0)
 			t:grounded(6)
-			local lagAtLanding = t.motor:IsLandingLag()
+			t:frame()
 			local dashed = t.dash:Request()
-			t:press("Jump")
-			t:wait(0.1)
-			local jumped = t.motor:GetMode() == "Air"
-			t:release("Jump")
-			t:wait(Config.HeavyLandLag + 0.4)
+			t:check("you can dash straight away", dashed)
+			t:waitFor(function()
+				return not t.dash:IsBusy()
+			end, 2)
+			local jump = t:jumpOnce()
+			t:check("and jump", jump.height > Config.JumpHeight * 0.7, string.format("%.1f studs", jump.height))
 			local anims = table.concat(record(), " > ")
-			t:check("a long fall without a roll: landing lag", lagAtLanding, string.format("fell %.1f", fall))
-			t:check("no dash and no jump during the lag", not dashed and not jumped,
-				string.format("dash %s, jump %s", tostring(dashed), tostring(jumped)))
-			t:check("the LandHeavy clip plays", string.find(anims, "LandHeavy") ~= nil, anims)
-			t:check("the lag ends", not t.motor:IsLandingLag())
-			local rolled = drop(t, OPEN, fall, Vector3.zero, "late")
-			t:check("a landing roll skips it", rolled.rolled and not rolled.lagSeen, rolled.info)
-			local short = drop(t, OPEN, Config.HeavyLandHeight - 4, Vector3.zero, "none")
-			t:check("a shorter fall isn't heavy", not short.lagSeen)
+			t:check("no heavy landing clip", string.find(anims, "LandHeavy") == nil, anims)
 		end,
 	},
 	{
@@ -248,6 +237,6 @@ local tests: { Harness.Test } = {
 
 return {
 	name = "Landing",
-	description = "Landing roll, heavy landing lag, landing clips",
+	description = "Landing roll, long falls, landing clips",
 	tests = tests,
 }

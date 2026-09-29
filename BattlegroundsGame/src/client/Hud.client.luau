@@ -7,9 +7,10 @@
 -- bar and the blue SP (stamina) bar, then two half-width bars: the dash cooldown and the Moth's
 -- movement cooldown. While the lantern charges, the slots give way to "HOLD CTRL" + a charge bar,
 -- and a crosshair shows in the middle of the screen (the throw aims there).
+-- In burnout the SP bar turns orange and blinks (in steps) until the meter is full again.
 --
--- Only the Race (Ctrl) slot is live for now; the others are placeholders for the build slots in the
--- design plan (weapon, magic, element, ultimate, secondary) until those systems exist.
+-- Live slots: 1 (the sword's 1), RMB (the dagger), Ctrl (race). The others are placeholders for the
+-- build slots in the design plan (magic, element, ultimate) until those systems exist.
 -- Everything is sized for a 720 px tall screen and scaled to the real one (UIScale).
 
 local Players = game:GetService("Players")
@@ -23,6 +24,9 @@ local movement = ReplicatedStorage:WaitForChild("Movement")
 movement:WaitForChild("Dash")
 movement:WaitForChild("Lantern")
 movement:WaitForChild("MovementConfig")
+ReplicatedStorage:WaitForChild("Combat"):WaitForChild("CombatClient")
+local CombatClient = require(ReplicatedStorage.Combat.CombatClient)
+local Moves = require(ReplicatedStorage.Combat.Moves)
 local Dash = require(ReplicatedStorage.Movement.Dash)
 local Lantern = require(ReplicatedStorage.Movement.Lantern)
 local Config = require(ReplicatedStorage.Movement.MovementConfig)
@@ -41,6 +45,8 @@ local HP_FILL = Color3.fromRGB(46, 160, 38)
 local HP_TEXT = Color3.fromRGB(190, 255, 160)
 local SP_FILL = Color3.fromRGB(28, 104, 196)
 local SP_TEXT = Color3.fromRGB(170, 215, 255)
+local BURNOUT_FILL = Color3.fromRGB(230, 120, 30)
+local BURNOUT_TEXT = Color3.fromRGB(255, 200, 150)
 local DASH_FILL = Color3.fromRGB(235, 235, 235)
 local MOTH_FILL = Color3.fromRGB(80, 200, 255)
 local RECHARGE_FILL = Color3.fromRGB(120, 120, 126)
@@ -53,16 +59,17 @@ local HALF_GAP = 6
 local HALF_W, HALF_H = (BAR_W - HALF_GAP) / 2, 9
 
 -- Placeholder skills (design plan keys) + the live race slot.
-type SlotSpec = { key: string, name: string, live: string? }
+-- cooldown: the CombatClient cooldown group the slot shows.
+type SlotSpec = { key: string, name: string, live: string?, cooldown: string? }
 local SLOTS: { SlotSpec } = {
-	{ key = "1", name = "Weapon" },
+	{ key = "1", name = "Sword 1", live = "Weapon", cooldown = "Sword.One" },
 	{ key = "2", name = "Magic I" },
 	{ key = "3", name = "Magic II" },
 	{ key = "4", name = "Magic III" },
 	{ key = "R", name = "Magic Special" },
 	{ key = "Q", name = "Element" },
 	{ key = "G", name = "Ultimate" },
-	{ key = "T", name = "Secondary" },
+	{ key = "RMB", name = "Dagger", live = "Secondary", cooldown = "Dagger" },
 	{ key = "Ctrl", name = "Race", live = "Race" },
 }
 
@@ -406,6 +413,14 @@ local function formatSeconds(t: number): string
 	return if t >= 10 then string.format("%ds", math.ceil(t)) else string.format("%.1fs", t)
 end
 
+-- Each cooldown group's full length (seconds), for the slot shade.
+local cooldownTotal: { [string]: number } = {}
+for _, move in Moves.All() do
+	if move.Cooldown > 0 then
+		cooldownTotal[move.CooldownGroup] = move.Cooldown
+	end
+end
+
 local dashWasReady = true
 local mothWasReady = true
 
@@ -433,8 +448,34 @@ local function update()
 	local spValue = if typeof(sp) == "number" then sp else Config.StaminaMax
 	local spTop = if typeof(spMax) == "number" then spMax else Config.StaminaMax
 	setFill(spBar, spValue / math.max(spTop, 1))
+	local burnout = character:GetAttribute("Burnout") == true
+	-- Blink in steps (4 per second) while burnt out.
+	local blink = burnout and math.floor(os.clock() * 4) % 2 == 0
+	spBar.fill.BackgroundColor3 = if burnout then (if blink then BURNOUT_TEXT else BURNOUT_FILL) else SP_FILL
+	if spBar.right then
+		spBar.right.Text = if burnout then "OUT" else "SP"
+		spBar.right.TextColor3 = if burnout then BURNOUT_TEXT else SP_TEXT
+	end
 	if spBar.left then
-		spBar.left.Text = string.format("%d/%d", math.floor(spValue + 0.5), spTop)
+		spBar.left.Text = if burnout then "BURNOUT" else string.format("%d/%d", math.floor(spValue + 0.5), spTop)
+	end
+
+	-- Weapon / secondary cooldowns.
+	local combat = CombatClient.Get(character)
+	for _, spec in SLOTS do
+		local group = spec.cooldown
+		if group then
+			local slot = slots[spec.key]
+			local left = if combat then combat:GetCooldown(group) else 0
+			local total = cooldownTotal[group] or 1
+			slot.shade.Size = UDim2.fromScale(1, math.clamp(left / total, 0, 1))
+			slot.timer.Text = if left > 0 then formatSeconds(left) else ""
+			local ready = left <= 0
+			if ready and not slot.ready then
+				pop(slot.box)
+			end
+			slot.ready = ready
+		end
 	end
 
 	-- Dash cooldown (full = ready).

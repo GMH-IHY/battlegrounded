@@ -1355,8 +1355,9 @@ function Lantern._canFly(self: Lantern, cost: number): boolean
 		self.lastInfo = "can't fly now (" .. mode .. ")"
 		return false
 	end
-	if self.stamina:GetValue() < cost then
-		self.lastInfo = "not enough stamina"
+	-- Overdraw: with any stamina left the move still comes out (and may burn you out).
+	if not self.stamina:CanSpend(cost) then
+		self.lastInfo = "burnt out"
 		Sfx.Play(self.character, "Denied")
 		return false
 	end
