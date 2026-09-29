@@ -1,0 +1,81 @@
+# Art Direction
+
+Sep 29, 2026. The look and feel rules for every model, animation and effect. References are in [references/](references/).
+
+## The look
+
+Classic 2010–2014 Roblox in the style of Die of Death and JJS: blocky R6 characters, flat colours, smooth plastic, very few parts. Nothing high-poly. When in doubt, use fewer parts.
+
+| Rule | Detail |
+| --- | --- |
+| Parts only | Part, WedgePart, Ball, Cylinder, simple SpecialMeshes. MeshParts only when a shape can't be made from parts. |
+| Flat colour | SmoothPlastic, no gradients. Neon only for small glowing accents. |
+| Thin plates | Wings, slashes and fungus spikes are thin flat parts, like Ko-guy's wings (thin purple rectangles with a paper texture). |
+| Low counts | A weapon ≤ 8 parts; a full Moth set (wings + antennae) ≤ 16 parts; an effect burst ≤ 12 parts. |
+
+## Animation
+
+- **Constant easing, always.** Every pose snaps to the next; there is no tweening between keyframes and no crossfade between animations (FadeTime 0).
+- **Choppy but smooth.** The flow comes from pose count, not blending. Every animation gets extra in-between poses at its **start** (anticipation: a small wind-up before the big move) and its **end** (settle: overshoot, then back to neutral), so starts and stops read as motion instead of popping.
+- **Start slow, end fast, recoil.** A small first move, then the big one, then a recoil. R6 has no elbows or knees, so the body itself drops, rises, leans and twists.
+- **Transitions exist.** Starting to run, stopping, turning around, and light / heavy landings are their own short animations, so switching states never jumps straight from one loop to another.
+- **Pose rate:** 12–20 poses per second for actions, fewer for idles.
+- **Previews:** `tools/animations/preview.py` (contact sheets) and `tools/animations/viewer.py` (plays them at real speed in a browser).
+
+## Effects
+
+Effects are a few parts whose size, position and transparency change in steps (constant easing), never smooth tweens.
+
+| Effect | Look |
+| --- | --- |
+| Sweat while running | Small blue balls popping off the head |
+| Dust (landing, dash) | A few grey cubes that step outward and shrink |
+| Explosion / burst | Low-poly sphere shells growing in 3–4 steps, then gone |
+| Slash | Thin flat arc (wedges) on one frame, fading in steps |
+| Hit spark | 3–5 thin white plates in a star, 2–3 frames |
+| Parry | White flash plate + ring |
+| Warning flash | Yellow = parryable unblockable; blue = dash only; a short flash on the attacker at startup |
+| Wind | Pale translucent curved plates streaming in the push / pull direction |
+
+## Lotus Fungus
+
+**Palette (sculk-inspired, see [references/sculk-fungus-palette.png](references/sculk-fungus-palette.png)).** Black and very dark blue-green body with dark green and dark blue speckles, plus a few glowing cyan specks.
+
+| Use | Colour |
+| --- | --- |
+| Base (most of the growth) | `#101418` near-black |
+| Body variation | `#182028`, `#0F2D36` dark blue-green |
+| Dark green speckle | `#1B3A2A` |
+| Dark blue speckle | `#16305A` |
+| Glowing speck (Neon, sparse) | `#1098A8` cyan |
+| Bone-like spikes / tips | `#C8C2A8` pale bone |
+
+**Growth rules.**
+
+- It grows from the **left arm** and spreads with the stage: stage 1 = forearm; stage 2 = whole arm and shoulder; stage 3 = shoulder, chest and part of the back and neck. Growth snaps to each new size (constant easing), never swells smoothly.
+- It is built from low-poly blobs (Balls / small blocks) and thin spikes, speckled with the colours above.
+- **The hand stays uncovered** (the smallest section at the end of the arm), so the dagger and the lantern still work at every stage.
+- **Exception:** big fungal moves (the stage 3 stab spike, the impale, the grabs) may grow out from the side of the arm, or briefly cover the whole hand, then retract. You can't use the dagger or lantern during those moves anyway.
+- **Infection on an opponent:** blobs grow over their limbs in steps, pulse, then burst apart as debris (sphere shells + cubes in the palette).
+
+## Moth
+
+- Wings: long, thin rectangular plates with a paper texture, crossed behind the back, in the Ko-guy style ([references/koguy-paper-wings.webp](references/koguy-paper-wings.webp)). Antennae: two thin rods.
+- The lantern: a small boxy lantern with a Neon core; its light is a simple sphere of light.
+
+## Hands
+
+- Right hand: always the sword.
+- Left hand: the fungus, the dagger (quick draw from a hip sheath) and the lantern throw. They never happen at the same time.
+
+## References
+
+| File | What it shows |
+| --- | --- |
+| [sculk-fungus-palette.png](references/sculk-fungus-palette.png) | Minecraft sculk: the fungus palette and speckle pattern |
+| [koguy-paper-wings.webp](references/koguy-paper-wings.webp) | JJS Ko-guy: thin rectangular paper wings, simple antennae |
+| [jjs-aura.webp](references/jjs-aura.webp) | JJS: a simple aura effect on a blocky character |
+| [jjs-street.webp](references/jjs-street.webp) | JJS: scale of characters and the flat, clean map |
+| [die-of-death-character.webp](references/die-of-death-character.webp) | Die of Death: blocky dark character, rough flat textures, retro face |
+
+These are style references only: no assets, names or designs from these games go into ours.

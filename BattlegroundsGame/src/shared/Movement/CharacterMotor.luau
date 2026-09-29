@@ -884,6 +884,7 @@ end
 -- move that passes next to one doesn't grab it. Once on, you stay on until you jump off.
 function CharacterMotor._updateClimbGate(self: CharacterMotor, state: Enum.HumanoidStateType)
 	local allow
+	-- selene: allow(if_same_then_else) -- order matters: the climbing check comes before the lock
 	if self.suspended then
 		allow = false
 	elseif state == Enum.HumanoidStateType.Climbing then

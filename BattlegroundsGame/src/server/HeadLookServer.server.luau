@@ -19,7 +19,7 @@ if not remotes then
 	folder.Parent = ReplicatedStorage
 	remotes = folder
 end
-assert(remotes)
+assert(remotes, "HeadLookServer: Remotes folder missing")
 
 local remote = Instance.new("UnreliableRemoteEvent")
 remote.Name = "HeadLook"

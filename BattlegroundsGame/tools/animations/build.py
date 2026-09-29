@@ -1,50 +1,45 @@
-"""Insert an R6 animation rig + the movement KeyframeSequences into a saved .rbxlx.
+"""Writes every animation into the place as KeyframeSequences (constant easing: poses snap).
 
-Usage: python build.py <saved.rbxlx> <out.rbxlx> <out_anims.rbxmx>
+    python tools/animations/build.py [place.rbxlx] [--only Name,Name] [--rig]
 
-Workspace > AnimRig_R6                       (anchored R6 dummy for the Animation Editor)
-ServerStorage > RBX_ANIMSAVES > AnimRig_R6   (ObjectValue -> rig; the editor's Load menu lists its children)
-                                  > Idle, WalkForward, ... (KeyframeSequences)
-Re-running replaces both, so it's safe to regenerate after tweaking anims.py.
+Sequences go to ServerStorage > RBX_ANIMSAVES > AnimRig_R6, where the Animation Editor lists them
+and StudioAnimationMirror copies them for playtests. A sequence with the same name is replaced;
+any other sequence (for example one you made in Studio) is left alone.
+
+Workspace > AnimRig_R6 (the anchored R6 dummy the editor poses) is created if it's missing.
+--rig rebuilds it from scratch, which drops anything attached to it by hand.
+
+Every animation module lists (time, pose) keys. A pose maps joint names to either an authored
+dict (rig.py: pitch/yaw/roll/offset, converted with rig.transform) or a ready 4x4 Transform
+(extra bones such as the Moth's wings). Joints missing from a pose aren't keyed, so partial poses
+layer over other animations.
 """
-import sys, uuid
-import numpy as np
-from lxml import etree
-from rig import JOINTS, SIZES, transform, cf, ry
-from anims import ALL
+import os
+import sys
 
+import numpy as np
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(HERE))
+import rbxlx  # noqa: E402
+from rbxlx import item, add, add_cf, add_v3, child, fmt  # noqa: E402
+from rig import JOINTS, SIZES, transform, cf, ry  # noqa: E402
+from catalog import ALL  # noqa: E402
+
+PLACE = os.path.join(os.path.dirname(os.path.dirname(HERE)), "BattlegroundsGame.rbxlx")
 RIG_NAME = "AnimRig_R6"
 RIG_CF = cf(0, 3, -30) @ np.block([[ry(180), np.zeros((3, 1))], [np.zeros((1, 3)), np.ones((1, 1))]])
 COLORS = {"Head": (245, 205, 48), "Torso": (13, 105, 172), "Right Arm": (245, 205, 48),
           "Left Arm": (245, 205, 48), "Right Leg": (75, 151, 75), "Left Leg": (75, 151, 75),
           "HumanoidRootPart": (163, 162, 165)}
-E = etree.Element
-def ref(): return "RBX" + uuid.uuid4().hex.upper()
-def fmt(x):
-    x = 0.0 if abs(x) < 1e-9 else float(x)
-    return repr(round(x, 7))
 
-def item(cls, name, parent=None):
-    it = E("Item", {"class": cls, "referent": ref()})
-    props = etree.SubElement(it, "Properties")
-    add(props, "string", "Name", name)
-    if parent is not None: parent.append(it)
-    return it, props
+# Joint -> the part its Pose is named after, and where that Pose hangs in the Keyframe tree.
+PART_OF = {"RootJoint": "Torso", "Neck": "Head", "Right Shoulder": "Right Arm", "Left Shoulder": "Left Arm",
+           "Right Hip": "Right Leg", "Left Hip": "Left Leg"}
+TORSO_CHILDREN = ["Head", "Right Arm", "Left Arm", "Right Leg", "Left Leg",
+                  "RightForewing", "LeftForewing", "RightHindwing", "LeftHindwing"]
+HEAD_CHILDREN = ["RightAntenna", "LeftAntenna"]
 
-def add(props, tag, name, text=None):
-    el = etree.SubElement(props, tag, name=name)
-    if text is not None: el.text = str(text)
-    return el
-
-def add_cf(props, name, m):
-    el = add(props, "CoordinateFrame", name)
-    for k, v in zip("XYZ", m[:3, 3]): etree.SubElement(el, k).text = fmt(v)
-    for i in range(3):
-        for j in range(3): etree.SubElement(el, f"R{i}{j}").text = fmt(m[i, j])
-
-def add_v3(props, name, v):
-    el = add(props, "Vector3", name)
-    for k, x in zip("XYZ", v): etree.SubElement(el, k).text = fmt(x)
 
 # ---------------- rig -------------------------------------------------------------------
 def build_rig():
@@ -62,19 +57,22 @@ def build_rig():
         add(pp, "bool", "CanQuery", "true")
         add(pp, "bool", "CanTouch", "false")
         add(pp, "float", "Transparency", 1 if name == "HumanoidRootPart" else 0)
-        add(pp, "token", "TopSurface", 0); add(pp, "token", "BottomSurface", 0)
-        c = add(pp, "Color3uint8", "Color3uint8")
-        r, g, b = COLORS[name]; c.text = str((0xFF << 24) | (r << 16) | (g << 8) | b)
+        add(pp, "token", "TopSurface", 0)
+        add(pp, "token", "BottomSurface", 0)
+        add(pp, "Color3uint8", "Color3uint8", rbxlx.color_int(COLORS[name]))
         parts[name] = part
     head = parts["Head"]
-    mesh, mep = item("SpecialMesh", "Mesh", head)
-    add(mep, "token", "MeshType", 0); add_v3(mep, "Scale", (1.25, 1.25, 1.25))
-    face, fp = item("Decal", "face", head)
-    add(fp, "Content", "Texture"); etree.SubElement(fp[-1], "url").text = "rbxasset://textures/face.png"
+    _, mep = item("SpecialMesh", "Mesh", head)
+    add(mep, "token", "MeshType", 0)
+    add_v3(mep, "Scale", (1.25, 1.25, 1.25))
+    _, fp = item("Decal", "face", head)
+    add(fp, "Content", "Texture")
+    rbxlx.etree.SubElement(fp[-1], "url").text = "rbxasset://textures/face.png"
     add(fp, "token", "Face", 5)
     for j, (p0, p1, c0, c1) in JOINTS.items():
-        m, pr = item("Motor6D", j, parts[p0])
-        add_cf(pr, "C0", c0); add_cf(pr, "C1", c1)
+        _, pr = item("Motor6D", j, parts[p0])
+        add_cf(pr, "C0", c0)
+        add_cf(pr, "C1", c1)
         add(pr, "Ref", "Part0", parts[p0].get("referent"))
         add(pr, "Ref", "Part1", parts[p1].get("referent"))
     hum, hp = item("Humanoid", "Humanoid", model)
@@ -84,21 +82,10 @@ def build_rig():
     add(mp, "Ref", "PrimaryPart", parts["HumanoidRootPart"].get("referent"))
     return model
 
+
 # ---------------- animations ------------------------------------------------------------
-LIMBS = [("Head", "Neck"), ("Right Arm", "Right Shoulder"), ("Left Arm", "Left Shoulder"),
-         ("Right Leg", "Right Hip"), ("Left Leg", "Left Hip")]
-
-def pose_el(parent, name, m, weight):
-    p, pp = item("Pose", name, parent)
-    add_cf(pp, "CFrame", m)
-    add(pp, "token", "EasingDirection", 0)
-    add(pp, "token", "EasingStyle", 1)          # PoseEasingStyle.Constant: snap, no tweening
-    add(pp, "float", "Weight", weight)
-    add(pp, "float", "MaskWeight", 0)
-    return p
-
 def constant_keys(keys):
-    """anims.py lists each pose at the time it should APPEAR and hold until the next one.
+    """Anim modules list each pose at the time it should APPEAR and hold until the next one.
     Roblox's Constant easing works the other way: between two keyframes it shows the LATER
     keyframe's pose (checked in Studio: at t=0.25 and 0.30 a walk with keys at 0.24/0.36 shows
     the 0.36 pose). So each pose is written at the END of the span it should cover."""
@@ -108,55 +95,98 @@ def constant_keys(keys):
     return out
 
 
+def keyed_transforms(p):
+    """{part name: Motor6D.Transform} for the joints this pose keys."""
+    out = {}
+    for joint, v in p.items():
+        if isinstance(v, dict):
+            out[PART_OF[joint]] = transform(joint, v)
+        elif isinstance(v, np.ndarray):
+            out[PART_OF.get(joint, joint)] = v
+    return out
+
+
+def pose_el(parent, name, m, weight):
+    p, pp = item("Pose", name, parent)
+    add_cf(pp, "CFrame", m)
+    add(pp, "token", "EasingDirection", 0)
+    add(pp, "token", "EasingStyle", 1)  # PoseEasingStyle.Constant: snap, no tweening
+    add(pp, "float", "Weight", weight)
+    add(pp, "float", "MaskWeight", 0)
+    return p
+
+
 def build_seq(anim):
     ks, kp = item("KeyframeSequence", anim["name"])
     add(kp, "bool", "Loop", "true" if anim["loop"] else "false")
     add(kp, "token", "Priority", anim["priority"])
-    for t, pose in constant_keys(anim["keys"]):
+    for t, p in constant_keys(anim["keys"]):
+        by_part = keyed_transforms(p)
         kf, kfp = item("Keyframe", "Keyframe", ks)
         add(kfp, "float", "Time", fmt(t))
         hrp = pose_el(kf, "HumanoidRootPart", np.eye(4), 0)
-        torso = pose_el(hrp, "Torso", transform("RootJoint", pose["RootJoint"]), 1)
-        for part, joint in LIMBS:
-            pose_el(torso, part, transform(joint, pose[joint]), 1)
+        torso = pose_el(hrp, "Torso", by_part.get("Torso", np.eye(4)), 1 if "Torso" in by_part else 0)
+        for part in TORSO_CHILDREN:
+            needed_for_head = part == "Head" and any(c in by_part for c in HEAD_CHILDREN)
+            if part in by_part or needed_for_head:
+                el = pose_el(torso, part, by_part.get(part, np.eye(4)), 1 if part in by_part else 0)
+                if part == "Head":
+                    for c in HEAD_CHILDREN:
+                        if c in by_part:
+                            pose_el(el, c, by_part[c], 1)
     return ks
 
-# ---------------- place patching ------------------------------------------------------
-def name_of(it):
-    n = it.find("Properties/string[@name='Name']")
-    return n.text if n is not None else None
 
-def child(parent, cls=None, name=None):
-    for c in parent:
-        if c.tag == "Item" and (cls is None or c.get("class") == cls) and (name is None or name_of(c) == name):
-            return c
+def main(argv):
+    place, only, rebuild_rig = PLACE, [], False
+    args = list(argv)
+    while args:
+        a = args.pop(0)
+        if a == "--only":
+            only = [n for n in args.pop(0).split(",") if n]
+        elif a == "--rig":
+            rebuild_rig = True
+        else:
+            place = a
+    unknown = [n for n in only if n not in {x["name"] for x in ALL}]
+    if unknown:
+        raise SystemExit("unknown animation(s): " + ", ".join(unknown))
 
-def main(saved, out, out_rbxmx):
-    parser = etree.XMLParser(strip_cdata=False, huge_tree=True)
-    tree = etree.parse(saved, parser); root = tree.getroot()
-    ws = child(root, "Workspace"); ss = child(root, "ServerStorage")
-    old = child(ws, "Model", RIG_NAME)
-    if old is not None: ws.remove(old)
-    rig = build_rig(); ws.append(rig)
+    tree = rbxlx.load(place)
+    root = tree.getroot()
+    ws, ss = child(root, "Workspace"), child(root, "ServerStorage")
+    rig = child(ws, "Model", RIG_NAME)
+    if rig is None or rebuild_rig:
+        if rig is not None:
+            ws.remove(rig)
+        rig = build_rig()
+        ws.append(rig)
+        print("built", RIG_NAME)
     saves = child(ss, name="RBX_ANIMSAVES")
     if saves is None:
         saves, _ = item("Model", "RBX_ANIMSAVES", ss)
     holder = child(saves, name=RIG_NAME)
-    if holder is not None: saves.remove(holder)
-    holder, hp = item("ObjectValue", RIG_NAME, saves)
-    add(hp, "Ref", "Value", rig.get("referent"))
-    seqs = [build_seq(a) for a in ALL]
-    for s in seqs: holder.append(s)
-    for el in root.iter():
-        if el.text is None and len(el) == 0: el.text = ""
-    tree.write(out, encoding="utf-8", xml_declaration=False)
+    if holder is None:
+        holder, hp = item("ObjectValue", RIG_NAME, saves)
+        add(hp, "Ref", "Value", rig.get("referent"))
+    else:
+        value = holder.find("Properties/Ref[@name='Value']")
+        value.text = rig.get("referent")
 
-    # A standalone model file too: a Folder of the same KeyframeSequences (drag into Studio).
-    m = E("roblox", {"version": "4"})
-    folder, _ = item("Folder", "MovementAnimations", m)
-    for a in ALL: folder.append(build_seq(a))
-    etree.ElementTree(m).write(out_rbxmx, encoding="utf-8", xml_declaration=False)
-    print("rig + %d animations written" % len(ALL))
+    count = 0
+    for anim in ALL:
+        if only and anim["name"] not in only:
+            continue
+        new = build_seq(anim)
+        old = child(holder, "KeyframeSequence", anim["name"])
+        if old is not None:
+            holder.replace(old, new)
+        else:
+            holder.append(new)
+        count += 1
+    rbxlx.save(tree, place)
+    print(f"wrote {count} animation(s) to {place}")
+
 
 if __name__ == "__main__":
-    main(*sys.argv[1:4])
+    main(sys.argv[1:])

@@ -109,6 +109,7 @@ table.insert(
 			return
 		end
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			-- selene: allow(if_same_then_else) -- order matters: each call only runs if the one before said no
 			if moth:CancelCharge() then
 				character:SetAttribute("M1RequestedAt", os.clock())
 			elseif moth:OnM1() then
