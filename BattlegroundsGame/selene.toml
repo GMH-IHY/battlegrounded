@@ -1,0 +1,4 @@
+# Luau linting: `selene src` (run from BattlegroundsGame/).
+# roblox.yml is the Roblox API as selene sees it; regenerate it with `selene generate-roblox-std`
+# when the engine adds classes you use.
+std = "roblox"
