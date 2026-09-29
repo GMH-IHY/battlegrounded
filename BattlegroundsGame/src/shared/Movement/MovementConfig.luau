@@ -223,6 +223,21 @@ local MovementConfig = {
 	-- speed up to 45 degrees off it, sliding linearly down to this at 180).
 	LandingRollTurnKeep = 0.7,
 
+	-- CANCELS INTO ATTACKS -----------------------------------------------------
+	-- M1 during a side or back dash ends the dash right there, keeping its speed, and swings. (During a
+	-- front dash M1 is the dash punch.) M1 late in a landing roll does the same, from this long into
+	-- the roll (seconds). Walking speed while an attack plays is scaled by AttackMoveSpeedScale.
+	RollAttackCancelTime = 0.25,
+	AttackMoveSpeedScale = 0.45,
+
+	-- HEAVY LANDING -----------------------------------------------------------
+	-- Landing from at least this high (studs, from the airtime's highest point) without a landing roll
+	-- is a heavy landing: for HeavyLandLag seconds you barely move (HeavyLandSpeedScale of walk speed)
+	-- and can't jump or dash. The landing roll is how you skip it.
+	HeavyLandHeight = 16,
+	HeavyLandLag = 0.25,
+	HeavyLandSpeedScale = 0.25,
+
 	-- AUTO PARKOUR ------------------------------------------------------------
 	-- Sprint into an obstacle and you vault it, step up onto it, climb it or slide under it
 	-- automatically. Heights are measured from your feet. See AutoParkour.

@@ -3,7 +3,7 @@
 -- Location: ReplicatedStorage > Movement > Perf
 --
 -- Tiny per-system timer for finding what costs frame time. Each movement system adds the time
--- its per-frame step took; the self-test (RunPerfTest) reads and resets the totals. Only
+-- its per-frame step took; the Performance test suite reads and resets the totals. Only
 -- counts while `enabled` is true (the test turns it on), so it costs nothing otherwise.
 
 local Perf = {}

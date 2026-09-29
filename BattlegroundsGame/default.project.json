@@ -6,6 +6,9 @@
       "$className": "ReplicatedStorage",
       "Movement": {
         "$path": "src/shared/Movement"
+      },
+      "Combat": {
+        "$path": "src/shared/Combat"
       }
     },
     "StarterPlayer": {

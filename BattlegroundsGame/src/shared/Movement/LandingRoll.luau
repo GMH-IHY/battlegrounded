@@ -272,7 +272,7 @@ function LandingRoll._setJumpLock(self: LandingRoll, locked: boolean)
 		return
 	end
 	self.jumpLocked = locked
-	self.humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, not locked)
+	self.motor:SetJumpLock("LandingRoll", locked)
 end
 
 -- Root height when standing on whatever is below (nil if nothing within range).
@@ -496,7 +496,7 @@ function LandingRoll._finish(self: LandingRoll, onGround: boolean)
 	self.character:SetAttribute("Rolling", false)
 	local track = self.track
 	if track and track.IsPlaying and onGround then
-		track:Stop(0.1)
+		track:Stop(0)
 	end
 
 	-- Momentum: carry the speed the roll ends with (the landing speed, or less after a wall).
@@ -525,6 +525,16 @@ function LandingRoll._finish(self: LandingRoll, onGround: boolean)
 		self.holdLock = false
 		self:_setJumpLock(false)
 	end
+end
+
+-- M1 late in a roll (from RollAttackCancelTime on): the roll ends keeping its speed and the attack
+-- takes over. Returns whether it did.
+function LandingRoll.CancelIntoAttack(self: LandingRoll): boolean
+	if self.phase ~= "Rolling" or os.clock() - self.rollStart < Config.RollAttackCancelTime then
+		return false
+	end
+	self:Cancel()
+	return true
 end
 
 -- Ends a roll early without the roll-jump (e.g. getting hit, once combat exists).

@@ -1,148 +1,135 @@
-"""The movement animation set. Every keyframe is a full pose; all poses use Constant easing
-(snap from pose to pose). Loops end with a copy of their first pose so the last pose holds
-for its full beat before the loop wraps."""
-from rig import pose, limb, body, mirror, fk
-from aim import aimed
+"""Locomotion: the loops Animate picks from every frame, plus the short transition clips it plays
+between them (start running, skid to a stop, turn around, land) so a state change never jumps
+straight from one loop into another.
 
-IDLE, MOVEMENT = 0, 1  # Enum.AnimationPriority tokens
+Loops end with a copy of their first pose (timing.cycle); one-shots hold their last pose. Every
+pose snaps (Constant easing); smoothness comes from in-between spacing (timing.py).
+"""
+from rig import pose, limb, body, mirror
+from poses import seq, arm, leg, P, T, planted, plant, IDLE, MOVEMENT, ACTION
+from timing import timeline, cycle, tween, lerp_pose, SLOW_IN, SLOW_OUT, SETTLE, ONE, QUICK_OUT, EVEN
 
-
-def seq(name, priority, loop, keys, notes):
-    return {"name": name, "priority": priority, "loop": loop, "keys": keys, "notes": notes}
-
-
-def loop_keys(poses, step):
-    keys = [(round(i * step, 4), p) for i, p in enumerate(poses)]
-    keys.append((round(len(poses) * step, 4), poses[0]))
-    return keys
-
-
-# ---------------- Idle: empty-handed, arms at the sides ----------------------------------
-# Both legs slide forward (a straight shift, no rotation), so the feet sit ahead of the torso.
+# =========================================================================================
+# IDLE (loop, ~2.3 s). Empty-handed, arms at the sides, feet a touch ahead of the torso.
+# A stepped breath: every change between the three breath poses gets an in-between, so the
+# chest rises and falls in small steps instead of popping.
+# =========================================================================================
 IDLE_LEG_SHIFT = 0.2  # studs the whole legs move forward
 
-def idle_leg(side, root_dy=0.0):
-    leg = limb(side)
-    leg["offset"] = (0, -root_dy, -IDLE_LEG_SHIFT)  # cancel the torso's breathing bob so feet stay planted
-    return leg
 
-idle_a = pose(root=body(), head=body(),
-              ra=limb("R", out=3), la=limb("L", out=3),
-              rl=idle_leg("R"), ll=idle_leg("L"))
-idle_b = pose(root=body(dy=0.06, lean=-1), head=body(lean=-3),          # breath in: chest up, chin up
-              ra=limb("R", out=6, swing=2), la=limb("L", out=6, swing=2),
-              rl=idle_leg("R", 0.06), ll=idle_leg("L", 0.06))
-idle_c = pose(root=body(dy=0.03), head=body(lean=-1),                   # half-way back down
-              ra=limb("R", out=4, swing=1), la=limb("L", out=4, swing=1),
-              rl=idle_leg("R", 0.03), ll=idle_leg("L", 0.03))
-IDLE_ANIM = seq("Idle", IDLE, True,
-                [(0.0, idle_a), (1.2, idle_b), (1.7, idle_c), (2.4, idle_a)],
-                "Empty-handed. Arms at the sides with a stepped breath; legs shifted forward.")
-
-def timed_loop(poses_and_holds):
-    """[(pose, seconds held), ...] -> keyframes; the first pose is repeated at the end."""
-    keys, t = [], 0.0
-    for p, hold in poses_and_holds:
-        keys.append((round(t, 4), p)); t += hold
-    keys.append((round(t, 4), poses_and_holds[0][0]))
-    return keys
+def idle_leg(side, root_dy=0.0, swing=0.0):
+    lg = limb(side, swing=swing)
+    lg["offset"] = (0, -root_dy, -IDLE_LEG_SHIFT)  # cancel the torso's bob so the feet stay planted
+    return lg
 
 
-def arm(side, swing=0, inward=0, out=0):
-    """Arm kept against the torso: swings forward/back from the shoulder. inward: + swings the
-    arm's plane across the front of the body (how the references pump their arms). out stays
-    tiny on purpose; rolling an R6 arm outward opens a gap at the shoulder."""
-    s = 1 if side == "R" else -1
-    return {"pitch": swing, "roll": s * out, "yaw": s * inward, "offset": (0, 0, 0)}
+def idle_pose(dy=0.0, lean=0.0, head=0.0, arm_out=3.0, arm_swing=0.0, tilt=0.0):
+    return pose(root=body(dy=dy, lean=lean, tilt=tilt), head=body(lean=head, tilt=-tilt * 0.6),
+                ra=limb("R", out=arm_out, swing=arm_swing), la=limb("L", out=arm_out, swing=arm_swing),
+                rl=idle_leg("R", dy), ll=idle_leg("L", dy))
 
 
-def leg(side, swing=0, out=0):
-    return limb(side, swing=swing, out=out)
+idle_rest = idle_pose()
+idle_in = idle_pose(dy=0.06, lean=-1.5, head=-3, arm_out=6, arm_swing=2)     # breath in: chest and chin up
+idle_out = idle_pose(dy=-0.02, lean=1.0, head=1, arm_out=3, arm_swing=-1)    # breath out, a little slumped
+IDLE_ANIM = seq("Idle", IDLE, True, timeline([
+    (idle_rest, 0.45),
+    *tween(idle_rest, idle_in, ONE, 0.1),
+    (idle_in, 0.55),
+    *tween(idle_in, idle_rest, ONE, 0.12),
+    (idle_rest, 0.3),
+    *tween(idle_rest, idle_out, ONE, 0.1),
+    (idle_out, 0.45),
+    *tween(idle_out, idle_rest, ONE, 0.1),
+], loop=True), "Arms at the sides, stepped breath with in-betweens (in, rest, out, rest).", ground=True)
 
-
-# ---------------- Walk (the only walk cycle) ---------------------------------------------
-# From the Die of Death gameplay video (civilian walk/run, 60fps frame-by-frame) and
-# PursuerWalk: a new pose every ~0.1 s, 8 poses per cycle. The BACK leg peels up behind
-# further than the front leg reaches forward. Arms swing from the shoulder, tight to the body.
-# 8 poses x 0.1 s = 0.8 s cycle, authored for walk speed 14.
+# =========================================================================================
+# WALK (loop, 0.8 s, authored for walk speed 14). Approved cycle, unchanged: from the Die of
+# Death civilian walk. A new pose every 0.1 s; the back leg peels up behind further than the
+# front leg reaches forward; arms swing from the shoulder, tight to the body.
+# =========================================================================================
 walk_contact = pose(root=body(lean=3, dy=-0.05), head=body(lean=-2),
                     ra=arm("R", swing=-30), la=arm("L", swing=32, inward=6),
                     rl=leg("R", swing=24), ll=leg("L", swing=-30))
 walk_down = pose(root=body(lean=4, tilt=2, dy=-0.12), head=body(lean=-3, tilt=-2),
                  ra=arm("R", swing=-22), la=arm("L", swing=24, inward=4),
-                 rl=leg("R", swing=14), ll=leg("L", swing=-36))                       # back leg peels up
+                 rl=leg("R", swing=14), ll=leg("L", swing=-36))
 walk_pass = pose(root=body(lean=3, tilt=3, dy=0.08), head=body(lean=-2, tilt=-3),
                  ra=arm("R", swing=-4), la=arm("L", swing=6),
-                 rl=leg("R", swing=-6), ll=leg("L", swing=4))                         # legs together
+                 rl=leg("R", swing=-6), ll=leg("L", swing=4))
 walk_up = pose(root=body(lean=3, tilt=2, dy=0.1), head=body(lean=-2, tilt=-2),
                ra=arm("R", swing=16, inward=4), la=arm("L", swing=-14),
-               rl=leg("R", swing=-20), ll=leg("L", swing=20))                         # left leg reaching
+               rl=leg("R", swing=-20), ll=leg("L", swing=20))
 WALK_HALF = [walk_contact, walk_down, walk_pass, walk_up]
 WALK = WALK_HALF + [mirror(p) for p in WALK_HALF]
-WALK_ANIM = seq("WalkForward", MOVEMENT, True, loop_keys(WALK, 0.1),
-                "8 poses, 0.8 s cycle. Body faces where you walk; the head follows the camera.")
+WALK_ANIM = seq("WalkForward", MOVEMENT, True, cycle(WALK, 0.1),
+                "8 poses, 0.8 s cycle. Body faces where you walk.")
 
-# ---------------- Sprint ------------------------------------------------------------------
-# Die of Death civilian run (video 0:26-0:28 and 4:26-4:28, side views, 60fps): pose every
-# ~0.08 s, 8 per cycle (~0.65 s). At the stride both arms are near horizontal, one forward
-# (crossing a little in front) and one back; the back leg kicks way up behind while the front
-# leg only reaches a little; torso leans forward. Between strides a short passing pose: arms
-# drop, legs gather under the body, body rises. Authored for run speed 26.
+# =========================================================================================
+# SPRINT (loop, 0.64 s, authored for run speed 26). Approved cycle, unchanged: Die of Death
+# civilian run. At the stride both arms are near horizontal, one forward and one back; the back
+# leg kicks way up behind while the front leg only reaches a little.
+# =========================================================================================
 run_stride = pose(root=body(lean=16, tilt=-3, dy=-0.12), head=body(lean=-12, tilt=3),
                   ra=arm("R", swing=-75), la=arm("L", swing=88, inward=14),
                   rl=leg("R", swing=30), ll=leg("L", swing=-62))
 run_kick = pose(root=body(lean=15, tilt=-2, dy=-0.03), head=body(lean=-11, tilt=2),
                 ra=arm("R", swing=-62), la=arm("L", swing=74, inward=12),
-                rl=leg("R", swing=18), ll=leg("L", swing=-72))                        # back leg kicks higher
+                rl=leg("R", swing=18), ll=leg("L", swing=-72))
 run_pass = pose(root=body(lean=10, tilt=2, dy=0.14), head=body(lean=-8, tilt=-2),
                 ra=arm("R", swing=-12), la=arm("L", swing=16),
-                rl=leg("R", swing=-10), ll=leg("L", swing=6))                         # arms drop, legs gather
+                rl=leg("R", swing=-10), ll=leg("L", swing=6))
 run_reach = pose(root=body(lean=13, tilt=3, dy=0.08), head=body(lean=-10, tilt=-3),
                  ra=arm("R", swing=34, inward=8), la=arm("L", swing=-30),
-                 rl=leg("R", swing=-34), ll=leg("L", swing=26))                       # left leg reaching
+                 rl=leg("R", swing=-34), ll=leg("L", swing=26))
 RUN_HALF = [run_stride, run_kick, run_pass, run_reach]
 SPRINT = RUN_HALF + [mirror(p) for p in RUN_HALF]
-SPRINT_ANIM = seq("Sprint", MOVEMENT, True, loop_keys(SPRINT, 0.08),
-                  "8 poses, 0.64 s cycle (Die of Death civilian run).")
+SPRINT_ANIM = seq("Sprint", MOVEMENT, True, cycle(SPRINT, 0.08),
+                  "8 poses, 0.64 s cycle (Die of Death civilian run).",
+                  snaps=(2, 6))  # the back leg whips forward into the passing pose: a deliberate snap
 
-# ---------------- Jump (one-shot) ---------------------------------------------------------
-# A running leap in the same style as the run: the lead knee drives up, the other leg trails
-# behind, and the OPPOSITE arm leads as the arms swing up (like the run). Four poses on the way up, then the last pose holds
-# and is almost exactly the Fall pose, so the hand-off at the top of the jump doesn't pop.
-jump_takeoff = pose(root=body(lean=8, dy=-0.04), head=body(lean=-6),
-                    ra=arm("R", swing=-30), la=arm("L", swing=55, inward=6),
-                    rl=leg("R", swing=55), ll=leg("L", swing=-34))
-jump_rise = pose(root=body(lean=4, dy=0.04), head=body(lean=-7),
-                 ra=arm("R", swing=40, inward=4), la=arm("L", swing=90, inward=6),
-                 rl=leg("R", swing=46), ll=leg("L", swing=-38))
-jump_rise2 = pose(root=body(lean=0, dy=0.06), head=body(lean=-5),
-                  ra=arm("R", swing=86, out=8), la=arm("L", swing=108, out=8, inward=4),
-                  rl=leg("R", swing=34), ll=leg("L", swing=-24))
-jump_top = pose(root=body(lean=-3, dy=0.05), head=body(lean=2),
-                ra=arm("R", swing=114, out=12), la=arm("L", swing=100, out=14),
-                rl=leg("R", swing=20), ll=leg("L", swing=-8))
-JUMP_ANIM = seq("Jump", MOVEMENT, False,
-                [(0.0, jump_takeoff), (0.08, jump_rise), (0.16, jump_rise2), (0.26, jump_top), (0.4, jump_top)],
-                "One-shot running leap, 4 poses; the last one matches the Fall pose.")
-
-# ---------------- Fall (loop) -------------------------------------------------------------
-# Calm, not a jittery flail: arms held up in front at shoulder-ish height and a little apart,
-# legs hanging with one slightly forward, head tipped down toward the landing. Small changes
-# between poses, held 0.2 s each, so it drifts instead of shaking. 4 poses, 0.8 s cycle.
+# =========================================================================================
+# JUMP (one-shot, played at take-off; holds its last pose, which is the Fall pose).
+# The body has already left the floor, so the anticipation is one quick push pose, then the
+# lead knee drives up with the opposite arm, both arms rise, and the top eases into Fall.
+# =========================================================================================
+jump_push = pose(root=body(lean=10, dy=-0.1), head=body(lean=-6),
+                 ra=arm("R", swing=-24), la=arm("L", swing=18, inward=4),
+                 rl=leg("R", swing=26), ll=leg("L", swing=-22))
+jump_drive = pose(root=body(lean=8, dy=-0.02), head=body(lean=-6),
+                  ra=arm("R", swing=-34), la=arm("L", swing=58, inward=6),
+                  rl=leg("R", swing=56), ll=leg("L", swing=-34))
+jump_rise = pose(root=body(lean=2, dy=0.05), head=body(lean=-6),
+                 ra=arm("R", swing=62, out=6, inward=4), la=arm("L", swing=100, out=6, inward=4),
+                 rl=leg("R", swing=40), ll=leg("L", swing=-28))
 fall_a = pose(root=body(lean=-4), head=body(lean=6),
               ra=arm("R", swing=115, out=14), la=arm("L", swing=100, out=16),
               rl=leg("R", swing=18), ll=leg("L", swing=-8, out=3))
+JUMP_ANIM = seq("Jump", MOVEMENT, False, timeline([
+    (jump_push, 0.03),
+    *tween(jump_push, jump_drive, ONE, 0.03),
+    (jump_drive, 0.05),
+    *tween(jump_drive, jump_rise, ONE, 0.04),
+    (jump_rise, 0.06),
+    *tween(jump_rise, fall_a, SLOW_OUT, 0.05),
+    (fall_a, 0.14),
+]), "Push, knee drive with the opposite arm, arms rise, eases into the Fall pose at the top.")
+
+# =========================================================================================
+# FALL (loop, 0.8 s). Calm, not a flail: arms held up in front, legs hanging, head down toward
+# the landing. Small changes held 0.2 s each so it drifts.
+# =========================================================================================
 fall_b = pose(root=body(lean=-5, dy=0.03), head=body(lean=7),
               ra=arm("R", swing=124, out=12), la=arm("L", swing=108, out=14),
               rl=leg("R", swing=12), ll=leg("L", swing=-2, out=3))
-FALL_HALF = [fall_a, fall_b]
-FALL_ANIM = seq("Fall", MOVEMENT, True, loop_keys(FALL_HALF + [mirror(p) for p in FALL_HALF], 0.2),
-                "Calm 4-pose fall, 0.8 s cycle; starts from the Jump's last pose.")
+FALL_ANIM = seq("Fall", MOVEMENT, True, cycle([fall_a, fall_b, mirror(fall_a), mirror(fall_b)], 0.2),
+                "Calm 4-pose fall, 0.8 s cycle; the Jump ends on its first pose.")
 
-# ---------------- Climb (trusses/ladders, loop) -------------------------------------------
-# Die of Death has no climb. Facing the truss: hands grip in front of the face at different
-# heights (not straight overhead), one knee comes up onto the next rung, then the body pulls
-# up with the hands level. 6 poses x 0.12 s = 0.72 s cycle. Speed follows climb speed.
+# =========================================================================================
+# CLIMB (trusses / ladders, loop, 0.72 s; speed follows climb speed, 0 freezes it).
+# Hands grip in front of the face at different heights, one knee comes up onto the next rung,
+# the body pulls up with the hands level.
+# =========================================================================================
 climb_reach = pose(root=body(lean=6, dy=-0.1), head=body(lean=-10),
                    ra=arm("R", swing=160, inward=10), la=arm("L", swing=100, inward=12),
                    rl=leg("R", swing=0), ll=leg("L", swing=55))
@@ -153,97 +140,100 @@ climb_pull = pose(root=body(lean=5, dy=0.12), head=body(lean=-9),
                   ra=arm("R", swing=132, inward=10), la=arm("L", swing=130, inward=10),
                   rl=leg("R", swing=28), ll=leg("L", swing=22))
 CLIMB_HALF = [climb_reach, climb_step, climb_pull]
-CLIMB_ANIM = seq("Climb", MOVEMENT, True, loop_keys(CLIMB_HALF + [mirror(p) for p in CLIMB_HALF], 0.12),
-                 "Hand over hand, 6 poses, 0.72 s cycle. Speed follows climb speed; 0 freezes on the truss.")
+CLIMB_ANIM = seq("Climb", MOVEMENT, True, cycle(CLIMB_HALF + [mirror(p) for p in CLIMB_HALF], 0.12),
+                 "Hand over hand, 6 poses, 0.72 s cycle.")
 
-ALL = [IDLE_ANIM, WALK_ANIM, SPRINT_ANIM, JUMP_ANIM, FALL_ANIM, CLIMB_ANIM]
-
+LOOPS = [IDLE_ANIM, WALK_ANIM, SPRINT_ANIM, JUMP_ANIM, FALL_ANIM, CLIMB_ANIM]
 
 # =========================================================================================
-# DASHES (Action priority: they play over the movement animations and key every joint)
-# Reference: Isaac's JJS parkour clip (Sep 26), stepped through frame by frame at 60 fps.
-# Version 2 (Isaac: v1 looked goofy). What changed and why:
-#   * Limbs are now authored by their angle in the WORLD (w_leg / w_arm below), not relative
-#     to a leaning torso. v1's front leg reached far forward like a split; in the clip the
-#     front leg stays planted UNDER the body and only the back leg stretches out behind.
-#   * Every pose is planted: the lowest point of the body sits exactly on the floor, so the
-#     crouches really are low instead of hovering or sinking.
-#   * Fewer giant sideways arm rolls; arms follow what the clip shows (one arm leads, one
-#     trails), not a T-pose.
-#
-#   Front dash (0:36.63-37.17, 3/4 back view): torso pitched ~50 deg, head up looking ahead;
-#     the support leg is roughly vertical under the hips, the other leg is stretched straight
-#     back almost flat along the ground; one arm swept back and out, the other hanging down in
-#     front. Rises over the last ~0.15 s with the arm coming forward.
-#   Quick-step (0:22.60-23.20, back view, moving left): crouch, then the body tips INTO the
-#     slide (~30 deg), the lead arm reaches out toward the slide at shoulder height, the
-#     trailing leg kicks out sideways nearly flat, the lead leg stays under the body. The
-#     trailing leg comes back down over ~0.2 s and the legs gather.
-#   Dash punch (0:49.4 front view, 0:55.9 back view): still in the lunge with the punching arm
-#     cocked back and the torso twisted away, then a straight jab with the shoulder driven
-#     forward, then a long endlag with both fists up in front of the face; one arm drops and
-#     it recovers.
+# TRANSITIONS (Movement priority, one-shots). Animate plays one of these in the locomotion slot
+# when the state changes, then hands over to the loop. They're visual only: control is never
+# delayed (except LandHeavy, whose lag is gameplay: CharacterMotor HeavyLandLag).
 # =========================================================================================
-ACTION = 2
 
+# WALK START (0.1 s): from standing, a small weight shift onto the first step, ends on the walk
+# contact pose so the cycle carries on from its first frame.
+walk_shift = pose(root=body(lean=2, dy=-0.03), head=body(lean=-1),
+                  ra=arm("R", swing=-8), la=arm("L", swing=10, inward=2),
+                  rl=idle_leg("R", swing=8), ll=idle_leg("L", swing=-8))
+WALK_START = seq("WalkStart", MOVEMENT, False, timeline([
+    (walk_shift, 0.04),
+    *tween(walk_shift, walk_contact, ONE, 0.03),
+    (walk_contact, 0.03),
+]), "Weight shift into the first step; ends on the walk's first pose.", ground=True)
 
-def one_shot(poses_and_times, end):
-    """[(time, pose), ...] -> keyframes; the last pose holds until `end`."""
-    keys = [(round(t, 4), p) for t, p in poses_and_times]
-    keys.append((round(end, 4), poses_and_times[-1][1]))
-    return keys
+# SPRINT START (0.2 s): push off. A low lean-in, the drive leg pushes back, the arms load, then
+# the first running stride (the Sprint loop's first pose).
+start_load = P(lean=8, dy=-0.1, ra=(-12, 4), la=(14, 4), rl=(8, 2), ll=(-6, 2))
+start_push = P(lean=22, dy=-0.2, ra=(-40, 8), la=(52, 6), la_in=10, rl=(18, 2), ll=(-40, 2))
+SPRINT_START = seq("SprintStart", MOVEMENT, False, planted(timeline([
+    (start_load, 0.04),
+    *tween(start_load, start_push, ONE, 0.03),
+    (start_push, 0.05),
+    *tween(start_push, run_stride, QUICK_OUT, 0.03),
+    (run_stride, 0.05),
+])), "Push off: low lean-in, drive leg pushes back, arms load, into the first stride.", ground=True)
 
+# SPRINT STOP (0.36 s): a skid. The body leans back against the speed, the lead foot braces out
+# in front, the arms fly forward for balance; then it rises and settles into Idle.
+skid_brace = P(lean=-14, dy=-0.25, head_lean=8, ra=(48, 18), la=(34, 14), rl=(34, 3), ll=(-18, 3))
+skid_deep = P(lean=-22, dy=-0.4, head_lean=14, ra=(62, 22), la=(50, 18), rl=(42, 3), ll=(-22, 3))
+skid_recover = P(lean=-3, dy=-0.1, head_lean=2, ra=(16, 8), la=(10, 8), rl=(12, 2), ll=(-8, 2))
+SPRINT_STOP = seq("SprintStop", MOVEMENT, False, planted(timeline([
+    (skid_brace, 0.05),
+    *tween(skid_brace, skid_deep, ONE, 0.03),
+    (skid_deep, 0.08),
+    *tween(skid_deep, skid_recover, EVEN, 0.04),
+    (skid_recover, 0.05),
+    *tween(skid_recover, idle_rest, SETTLE, 0.03),
+    (idle_rest, 0.02),
+])), "Skid: lean back, brace the lead foot, arms fly forward; rise and settle into Idle.", ground=True)
 
-def w_leg(side, forward=0.0, outward=0.0, lean=0.0, tilt=0.0):
-    """Leg by its WORLD angle: forward = degrees in front of straight down (negative = behind),
-    outward = degrees out to its own side. lean/tilt are the torso's (tilt + = top to the right)."""
-    s = 1 if side == "R" else -1
-    return limb(side, swing=forward + lean, out=outward + s * tilt)
+# SPRINT TURN (0.22 s): turning around at speed. Plant, dip and lean into the new direction with
+# the arms swinging across, then push into a stride.
+turn_plant = P(lean=-8, tilt=10, dy=-0.3, ra=(30, 30), la=(-20, 24), rl=(30, 10), ll=(-10, 6))
+turn_push = P(lean=18, tilt=-6, dy=-0.18, ra=(-50, 12), la=(60, 10), la_in=10, rl=(24, 3), ll=(-44, 3))
+SPRINT_TURN = seq("SprintTurn", MOVEMENT, False, planted(timeline([
+    (turn_plant, 0.05),
+    *tween(turn_plant, turn_push, SLOW_IN, 0.03),
+    (turn_push, 0.05),
+    *tween(turn_push, run_stride, QUICK_OUT, 0.03),
+    (run_stride, 0.03),
+])), "Plant and dip leaning into the turn, arms swing across, push into a stride.", ground=True)
 
+# LAND LIGHT (0.2 s): a normal jump landing while standing still. Squash, recover in steps, Idle.
+land_squash = P(lean=10, dy=-0.35, head_lean=-4, ra=(28, 16), la=(24, 16), rl=(22, 5), ll=(-14, 5))
+land_up = P(lean=4, dy=-0.12, ra=(10, 8), la=(8, 8), rl=(10, 3), ll=(-6, 3))
+LAND_LIGHT = seq("LandLight", MOVEMENT, False, planted(timeline([
+    (land_squash, 0.05),
+    *tween(land_squash, land_up, ONE, 0.04),
+    (land_up, 0.04),
+    *tween(land_up, idle_rest, SETTLE, 0.025),
+    (idle_rest, 0.02),
+])), "Squash on touchdown, recover in steps into Idle.", ground=True)
 
-def w_arm(side, forward=0.0, outward=0.0, lean=0.0, tilt=0.0, inward=0.0):
-    """Arm by its WORLD angle (same meaning as w_leg). inward swings it across the body."""
-    s = 1 if side == "R" else -1
-    a = limb(side, swing=forward + lean, out=outward + s * tilt)
-    a["yaw"] += s * inward
-    return a
+# LAND RUN (0.14 s): landing while moving. A quick absorb mid-stride that flows into the run.
+land_run_absorb = P(lean=16, dy=-0.3, ra=(-30, 8), la=(40, 8), la_in=8, rl=(20, 2), ll=(-28, 2))
+LAND_RUN = seq("LandRun", MOVEMENT, False, planted(timeline([
+    (land_run_absorb, 0.05),
+    *tween(land_run_absorb, run_stride, ONE, 0.04),
+    (run_stride, 0.05),
+])), "Absorb mid-stride, straight back into the run.", ground=True)
 
+# LAND HEAVY (0.42 s): a long fall without a landing roll. Deep impact crouch with one knee
+# forward and a hand slapped down, held a beat (this is the landing lag), then a heavy rise.
+heavy_impact = T(lean=34, dy=-0.9, head=(-26, 0, 0), ra=(70, 22), la=(20, 30), rl=(70, 6), ll=(-38, 6))
+heavy_hold = T(lean=30, dy=-0.85, head=(-24, 0, 0), ra=(64, 20), la=(26, 28), rl=(66, 6), ll=(-34, 6))
+heavy_rise = T(lean=12, dy=-0.3, head=(-8, 0, 0), ra=(24, 10), la=(14, 12), rl=(30, 3), ll=(-14, 3))
+LAND_HEAVY = seq("LandHeavy", MOVEMENT, False, planted(timeline([
+    (heavy_impact, 0.06),
+    (heavy_hold, 0.12),
+    *tween(heavy_hold, heavy_rise, SLOW_IN, 0.04),
+    (heavy_rise, 0.06),
+    *tween(heavy_rise, idle_rest, SETTLE, 0.03),
+    (idle_rest, 0.02),
+])), "Deep impact crouch, knee forward and a hand down, held (landing lag), heavy rise to Idle.",
+    ground=True)
 
-def P(lean=0.0, tilt=0.0, turn=0.0, head_lean=None, head_tilt=None, head_turn=0.0,
-      ra=(0, 0), la=(0, 0), rl=(0, 0), ll=(0, 0), ra_in=0.0, la_in=0.0):
-    """A full pose from world limb angles. Each limb is (forward, outward) in world degrees.
-    The head keeps looking level by default (it cancels the torso's lean/tilt)."""
-    hl = -lean * 0.8 if head_lean is None else head_lean
-    ht = -tilt * 0.7 if head_tilt is None else head_tilt
-    return pose(root=body(lean=lean, tilt=tilt, turn=turn),
-                head=body(lean=hl, tilt=ht, turn=head_turn),
-                ra=w_arm("R", *ra, lean=lean, tilt=tilt, inward=ra_in),
-                la=w_arm("L", *la, lean=lean, tilt=tilt, inward=la_in),
-                rl=w_leg("R", *rl, lean=lean, tilt=tilt),
-                ll=w_leg("L", *ll, lean=lean, tilt=tilt))
-
-
-def _plant(anims, floor=-0.05):
-    """Moves the body up or down so the lowest corner of every pose sits exactly on the floor
-    (0 with the root at 3, like a standing R6): crouches are really low, nothing hovers or sinks."""
-    import itertools
-    import numpy as np
-    from rig import fk, SIZES
-    for a in anims:
-        for _, p in a["keys"]:
-            if p.get("_planted"):
-                continue
-            w = fk(p)
-            lo = min((w[part] @ np.array([*c, 1]))[1]
-                     for part in ["Right Leg", "Left Leg", "Right Arm", "Left Arm", "Torso", "Head"]
-                     for c in itertools.product(*[(-s / 2, s / 2) for s in SIZES[part]]))
-            x, y, z = p["RootJoint"]["offset"]
-            p["RootJoint"] = dict(p["RootJoint"], offset=(x, y + (floor - lo), z))
-            p["_planted"] = True
-
-
-
-# Dash animations (front / side / back / dash punch) were REMOVED at Isaac's request (Sep 26).
-# The dash code still plays DashForward / DashLeft / DashRight / DashBack / DashPunch if a
-# KeyframeSequence with that name is added in Studio (or an ID in AnimationConfig.Ids).
-DASH = []
+TRANSITIONS = [WALK_START, SPRINT_START, SPRINT_STOP, SPRINT_TURN, LAND_LIGHT, LAND_RUN, LAND_HEAVY]
+ALL = LOOPS + TRANSITIONS

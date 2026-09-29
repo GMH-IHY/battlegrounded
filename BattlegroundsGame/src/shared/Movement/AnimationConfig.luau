@@ -10,19 +10,6 @@
 -- the Animation Editor shows up the next time you press Play. Those Studio copies only work in
 -- Studio: a live server needs every ID filled in.
 
-export type AnimationName =
-	"Idle"
-	| "WalkForward"
-	| "Sprint"
-	| "Jump"
-	| "Fall"
-	| "Climb"
-	| "DashForward"
-	| "DashLeft"
-	| "DashRight"
-	| "DashBack"
-	| "DashPunch"
-
 local AnimationConfig = {
 	Ids = {
 		Idle = "",
@@ -31,19 +18,24 @@ local AnimationConfig = {
 		Jump = "",
 		Fall = "",
 		Climb = "",
+		-- Transitions Animate plays between the loops above.
+		WalkStart = "",
+		SprintStart = "",
+		SprintStop = "",
+		SprintTurn = "",
+		LandLight = "",
+		LandRun = "",
+		LandHeavy = "",
 		DashForward = "",
 		DashLeft = "",
 		DashRight = "",
 		DashBack = "",
 		DashPunch = "",
-		-- Played by WallHop by which side the wall is on (Right = wall on your right). The plain
-		-- WallRun / WallHop are only fallbacks if a sided one is missing.
+		-- Played by WallHop by which side the wall is on (Right = wall on your right).
 		WallRunRight = "",
 		WallRunLeft = "",
 		WallHopRight = "",
 		WallHopLeft = "",
-		WallRun = "",
-		WallHop = "",
 		-- Optional: played by LandingRoll if it exists.
 		LandingRoll = "",
 		-- Optional: played by AutoParkour if they exist ("Vault" also plays for a step-up).
@@ -57,6 +49,10 @@ local AnimationConfig = {
 		LanternCharge = "",
 		LanternThrow = "",
 		LanternSuspend = "",
+		-- Sword M1 chain (the placeholder M1 plays these until the combat system exists).
+		M1Swing1 = "",
+		M1Swing2 = "",
+		M1Swing3 = "",
 	} :: { [string]: string },
 
 	-- Where Studio playtests read unpublished animations from.
