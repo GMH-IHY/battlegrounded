@@ -7,7 +7,9 @@
 -- into and along a wall to wall hop; press it right before landing from a high fall to roll.
 -- Sprinting into obstacles vaults / climbs / slides automatically (AutoParkour). Shift: dash.
 -- Combat keys go to CombatClient (the server decides the hits): M1 (left click), M2 (right click,
--- the dagger), 1 (the sword's 1), F (hold = block, press = parry try). An attack during a side / back
+-- the dagger), 1 (the sword's 1), F (hold = block, press = parry try), and the Lotus Fungus: 2 / 3 / 4
+-- (stab / spore / grab of your meter stage), R (hold = heal, tap = rip out), G (the stage 3 form).
+-- An attack during a side / back
 -- dash, late in a landing roll or in a Moth flight cuts straight into it, keeping your momentum; a
 -- front dash's (or a run's) M1 is the lunge. While the server has you stunned nothing moves you;
 -- Shift while knocked down is a tech roll.
@@ -52,6 +54,14 @@ local DASH_KEYS: { [Enum.KeyCode]: boolean } = {
 local RACE_SPECIAL_KEY = Enum.KeyCode.LeftControl
 local BLOCK_KEY = Enum.KeyCode.F
 local ONE_KEY = Enum.KeyCode.One
+-- The magic system's keys (the Lotus Fungus): 2 / 3 / 4, R, G.
+local MAGIC_KEYS: { [Enum.KeyCode]: string } = {
+	[Enum.KeyCode.Two] = "Two",
+	[Enum.KeyCode.Three] = "Three",
+	[Enum.KeyCode.Four] = "Four",
+	[Enum.KeyCode.R] = "R",
+	[Enum.KeyCode.G] = "G",
+}
 
 local character = script.Parent
 assert(character and character:IsA("Model"), "MovementController must be in StarterCharacterScripts")
@@ -167,6 +177,17 @@ local function pressOne()
 	pressAttack("One")
 end
 
+-- The Lotus keys (2 / 3 / 4 / G). R also needs its release (heal channel / rip-out tap).
+local function magicPress(slot: string): () -> ()
+	return function()
+		pressAttack(slot)
+	end
+end
+
+local function releaseR()
+	combat:Release("R")
+end
+
 local function pressBlock()
 	combat:SetBlock(true)
 end
@@ -245,6 +266,11 @@ Controls.Register(character, {
 		M2 = pressM2,
 		One = pressOne,
 		Block = pressBlock,
+		Two = magicPress("Two"),
+		Three = magicPress("Three"),
+		Four = magicPress("Four"),
+		R = magicPress("R"),
+		G = magicPress("G"),
 	},
 	release = {
 		Jump = releaseJump,
@@ -257,6 +283,11 @@ Controls.Register(character, {
 		M2 = nothing,
 		One = nothing,
 		Block = releaseBlock,
+		Two = nothing,
+		Three = nothing,
+		Four = nothing,
+		R = releaseR,
+		G = nothing,
 	},
 })
 
@@ -272,6 +303,8 @@ table.insert(
 			pressM2()
 		elseif input.KeyCode == ONE_KEY then
 			pressOne()
+		elseif MAGIC_KEYS[input.KeyCode] then
+			pressAttack(MAGIC_KEYS[input.KeyCode])
 		elseif input.KeyCode == BLOCK_KEY then
 			pressBlock()
 		elseif DASH_KEYS[input.KeyCode] then
@@ -300,6 +333,8 @@ table.insert(
 			moth:Release()
 		elseif input.KeyCode == BLOCK_KEY then
 			releaseBlock()
+		elseif input.KeyCode == Enum.KeyCode.R then
+			releaseR()
 		end
 	end)
 )
@@ -310,6 +345,7 @@ table.insert(
 		releaseForward()
 		releaseJump()
 		releaseBlock()
+		releaseR()
 		moth:Release()
 	end)
 )

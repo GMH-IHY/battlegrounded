@@ -79,6 +79,7 @@ type Data = {
 	chain: number,
 	chainEndedAt: number,
 	cooldowns: { [string]: number },
+	cooldownTotals: { [string]: number },
 	blockHeld: boolean,
 	locked: boolean,
 	swings: number,
@@ -118,6 +119,7 @@ function CombatClient.new(character: Model, motor: CharacterMotor.CharacterMotor
 		chain = 0,
 		chainEndedAt = -math.huge,
 		cooldowns = {},
+		cooldownTotals = {},
 		blockHeld = false,
 		locked = false,
 		swings = 0,
@@ -210,6 +212,11 @@ function CombatClient.GetCooldown(self: CombatClient, group: string): number
 	return if ready then math.max(ready - os.clock(), 0) else 0
 end
 
+-- The full length of the cooldown last started in `group` (the variants of a key differ).
+function CombatClient.GetCooldownTotal(self: CombatClient, group: string): number
+	return self.cooldownTotals[group] or 1
+end
+
 function CombatClient.IsBlocking(self: CombatClient): boolean
 	return self.blockHeld
 end
@@ -230,7 +237,16 @@ function CombatClient._context(self: CombatClient, lunge: boolean?): Loadout.Con
 		or (mode ~= "Ground" and self.humanoid.FloorMaterial == Enum.Material.Air)
 	local speed = Vector3.new(self.root.AssemblyLinearVelocity.X, 0, self.root.AssemblyLinearVelocity.Z).Magnitude
 	local running = lunge == true or (self.motor:IsSprinting() and speed > MovementConfig.WalkSpeed * 1.2)
-	return { air = air, running = running and not air, spaceHeld = self.motor:IsJumpHeld(), chain = chain }
+	local stage = self.character:GetAttribute("LotusStage")
+	return {
+		air = air,
+		running = running and not air,
+		spaceHeld = self.motor:IsJumpHeld(),
+		chain = chain,
+		stage = if typeof(stage) == "number" then stage else 1,
+		targetAirborne = self:_airborneTargetAhead(),
+		rip = false,
+	}
 end
 
 -- A key press: "M1", "M2" or "One". lunge = came from a front dash (the running M1).
@@ -264,8 +280,38 @@ function CombatClient.Press(self: CombatClient, slot: string, lunge: boolean?): 
 		Sfx.Play(self.character, "Denied", { volume = 0.7 })
 		return false
 	end
+	if move.Id == "Lotus.Form" then
+		local meter = self.character:GetAttribute("Lotus")
+		if typeof(meter) ~= "number" or meter < Config.LotusMax or self.character:GetAttribute("LotusForm") == true then
+			Sfx.Play(self.character, "Denied", { volume = 0.7 })
+			return false
+		end
+	end
 	self:_start(move)
 	return true
+end
+
+-- A move key let go. R: a quick tap (within RipOutFrames of pressing) turns the heal into the
+-- rip-out; later, it ends the heal channel (the share channelled counts, on the server).
+function CombatClient.Release(self: CombatClient, slot: string)
+	if slot ~= "R" or self.destroyed then
+		return
+	end
+	local current = self.current
+	if not current or not current.move.Channel then
+		return
+	end
+	local frame = math.floor(current.elapsed / FRAME + 1e-6)
+	if frame < Config.RipOutFrames then
+		local rip = Moves.Get("Lotus.RipOut")
+		if rip then
+			self:_start(rip)
+		end
+		return
+	end
+	self.remotes.Release:FireServer("R")
+	local move = current.move
+	current.elapsed = math.max(current.elapsed, (move.Startup + move.Active) * FRAME)
 end
 
 -- Space during a launcher that hit: jump straight up after them.
@@ -286,13 +332,28 @@ function CombatClient.TryJumpCancel(self: CombatClient): boolean
 	return true
 end
 
--- The nearest other fighter in front, for the soft lock.
-function CombatClient._aimTarget(self: CombatClient): Vector3?
+-- Is there an airborne opponent in front within the impale's range?
+function CombatClient._airborneTargetAhead(self: CombatClient): boolean
 	local look = self.root.CFrame.LookVector
 	local flatLook = Vector3.new(look.X, 0, look.Z).Unit
-	local best: Vector3? = nil
-	local bestDistance = Config.AimAssistRange
-	local cosLimit = math.cos(math.rad(Config.AimAssistAngle))
+	for _, model in self:_opponents() do
+		local root = model:FindFirstChild("HumanoidRootPart")
+		local humanoid = model:FindFirstChildOfClass("Humanoid")
+		if root and root:IsA("BasePart") and humanoid and humanoid.Health > 0 then
+			local state = humanoid:GetState()
+			local flying = state == Enum.HumanoidStateType.Freefall or state == Enum.HumanoidStateType.Jumping
+			local offset = root.Position - self.root.Position
+			local flat = Vector3.new(offset.X, 0, offset.Z)
+			if flying and flat.Magnitude <= Config.ImpaleRange and (flat.Magnitude < 1 or flat.Unit:Dot(flatLook) > 0.3) then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+-- Every other character that could be fought (players and training dummies).
+function CombatClient._opponents(self: CombatClient): { Model }
 	local candidates: { Model } = {}
 	for _, player in Players:GetPlayers() do
 		if player.Character and player.Character ~= self.character then
@@ -307,7 +368,17 @@ function CombatClient._aimTarget(self: CombatClient): Vector3?
 			end
 		end
 	end
-	for _, model in candidates do
+	return candidates
+end
+
+-- The nearest other fighter in front, for the soft lock.
+function CombatClient._aimTarget(self: CombatClient): Vector3?
+	local look = self.root.CFrame.LookVector
+	local flatLook = Vector3.new(look.X, 0, look.Z).Unit
+	local best: Vector3? = nil
+	local bestDistance = Config.AimAssistRange
+	local cosLimit = math.cos(math.rad(Config.AimAssistAngle))
+	for _, model in self:_opponents() do
 		local root = model:FindFirstChild("HumanoidRootPart")
 		local humanoid = model:FindFirstChildOfClass("Humanoid")
 		if root and root:IsA("BasePart") and humanoid and humanoid.Health > 0 then
@@ -345,6 +416,7 @@ function CombatClient._start(self: CombatClient, move: Move)
 	}
 	if move.Cooldown > 0 then
 		self.cooldowns[move.CooldownGroup] = os.clock() + move.Cooldown
+		self.cooldownTotals[move.CooldownGroup] = move.Cooldown
 	end
 	self.remotes.Move:FireServer(move.Id, self.seq)
 	self.character:SetAttribute("AttackPhase", "Startup")
@@ -365,7 +437,7 @@ function CombatClient._start(self: CombatClient, move: Move)
 		local seconds = move.Startup * FRAME
 		self.body:Push(look * MovementConfig.RunSpeed, seconds, true)
 	end
-	self.anim:Play(move.Animation)
+	self.anim:Play(move.Animation, move.AnimSpeed)
 end
 
 -- Ends the current move. interrupted = it didn't play out (a cancel, a hit, a refusal).
@@ -433,6 +505,9 @@ function CombatClient._step(self: CombatClient, dt: number)
 	if phase ~= current.phase then
 		current.phase = phase :: Phase
 		self.character:SetAttribute("AttackPhase", phase)
+		if phase == "Recovery" and move.Channel then
+			self.anim:StopMove(move.Animation) -- the heal loop ends with the channel
+		end
 		if phase == "Active" then
 			Sfx.Play(self.character, move.Fx.Swing, { volume = 0.8 })
 			if move.Motion.Lunge > 0 then
@@ -462,6 +537,19 @@ function CombatClient._onResult(self: CombatClient, seq: number, result: string,
 	if hitstop > 0 then
 		current.pauseUntil = os.clock() + hitstop
 		self.anim:Freeze(hitstop)
+	end
+	local grab = current.move.Grab
+	if grab and (result == "Hit" or result == "Counter") then
+		-- Caught them: feast for the hold.
+		local animation = current.move.Animation
+		self.anim:Play("LotusFeast")
+		task.delay(hitstop + grab.Hold * FRAME, function()
+			self.anim:StopMove("LotusFeast")
+			local now = self.current
+			if now and now.seq == seq then
+				self.anim:StopMove(animation)
+			end
+		end)
 	end
 end
 
@@ -524,6 +612,7 @@ end
 function CombatClient.ResetForTest(self: CombatClient)
 	self:_finish(true)
 	table.clear(self.cooldowns)
+	table.clear(self.cooldownTotals)
 	self.chain = 0
 	self.chainEndedAt = -math.huge
 	self.lastResult = ""

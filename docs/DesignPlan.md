@@ -66,6 +66,8 @@ Combat runs on a 60 Hz frame model. The server owns every hit, resource and cool
 
 **How it's built (phase 2).** The server keeps a `Fighter` for every player and training dummy: a state machine (Idle, Blocking, Attacking, Stunned, Blockstun, Parried, Launched, Knockdown, Downed, TechRoll), the move it runs, stamina, cooldowns, the M1 chain, the combo it's taking and its build-up. Every frame it steps each move's frames and checks the active hitboxes itself (slightly padded for lag); `HitResolver` decides parry / block / armour / hit. The attacker's client plays the move at once (animation, step, lunge, hanging in the air), asks the server to run it, and pauses for the hit pause when the server says it landed; a refused move stops. The victim's client moves its own body (players own their physics) from the server's reaction message. Fighters pass through each other (collision group "Fighters").
 
+**Lotus on top of it (phase 3).** The `Fighter` also holds the Lotus meter, the G form timer and Infested, and publishes them as attributes (Lotus, LotusStage, LotusForm, Infested) that the HUD, `FungusParts` (the growth on the arm and body) and `LotusFx` read. Moves carry the Lotus rules as data (stage, meter cost / gain, whiff penalty, projectile, grab, targeted, channel, status), so `HitResolver` and `Fighter` stay generic. Grabs and impales add one state, Held.
+
 - **Knockdowns are animated, not physics ragdolls:** the body flies on a set path, tumbles in the air (stepped animation), lies on the floor, gets up. It reads better with constant easing and makes timing exact.
 - **Hit pause:** both characters freeze for a few frames (4 on an M1, up to 7 on heavy hits) and the move's clock stops meanwhile, so the frame data stays true.
 - **Soft lock:** an attack started with an opponent within 12 studs and 70° of where you face turns you toward them.
@@ -168,7 +170,7 @@ Each phase ends with a Studio playtest and a commit.
 | 0. Cleanup & foundation | Remove dead code, merge the place and animation tools, set up linting, write these docs. **Done Sep 29.** |
 | 1. Movement rework | Regenerate every movement animation with more in-between poses at the start and end, transition animations, torso lean, cancels into attacks, new Moth paper wings, sweat and dust effects. **Built Sep 29, waiting on a Studio playtest.** |
 | 2. Combat core + Sword + Dagger | State machine, move runner, hits / block / parry / counter-hit, stamina and burnout, get-up, juggle limit, scaling, status build-up, warning flashes, hit pause and screen shake, training dummy, sword and dagger models and moves. **Built Sep 29, waiting on a Studio playtest.** |
-| 3. Lotus Fungus | Meter and stages, every 2 / 3 / 4 variant, R and G, fungus arm and body growth, infection wrap and burst, the opponent's reactions. |
+| 3. Lotus Fungus | Meter and stages, every 2 / 3 / 4 variant, R and G, fungus arm and body growth, infection wrap and burst, the opponent's reactions. **Built Sep 29, waiting on a Studio playtest** (sounds are placeholders; the follow-up rules are a first draft). |
 | 4. Wind + Moth | Q push / pull and Drafted; lantern rework and flight in your own light. |
 | 5. HUD & balance tools | HUD tied to the loadout, stage meter, status bars over heads, cooldowns; combo damage checker. |
 

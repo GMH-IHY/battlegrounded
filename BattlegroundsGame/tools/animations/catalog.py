@@ -6,8 +6,9 @@ from anims import ALL as MOVEMENT
 from parkour_anims import ALL_NEW as PARKOUR
 from moth_anims import MOTH
 from combat_anims import COMBAT
+from lotus_anims import LOTUS
 
-ALL = MOVEMENT + PARKOUR + MOTH + COMBAT
+ALL = MOVEMENT + PARKOUR + MOTH + COMBAT + LOTUS
 
 _names = [a["name"] for a in ALL]
 assert len(_names) == len(set(_names)), "two animations share a name"

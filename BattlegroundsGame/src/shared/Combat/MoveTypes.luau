@@ -26,16 +26,57 @@
 --                                 frames (the attacker's own client moves them).
 --   Buildup                       status build-up on the target when it hits.
 --   Fx                            the slash drawn on the active frames (CombatFx).
+--
+-- Magic moves (Lotus) add:
+--   Magic / Stage                 which magic system and which meter stage picks it (Loadout)
+--   MeterCost / MeterGain         meter spent when it starts (stage 3) / gained when it hits
+--   SetMeter                      on hit the meter jumps to this (stage 2 grab)
+--   WhiffPenalty                  missing it costs HP and staggers you (stage 3 moves)
+--   Projectile                    fired on the first active frame instead of a hitbox: Count shots in
+--                                 a Spread fan, Speed studs/s, Range studs, Radius; Ground = it runs
+--                                 along the floor and only hits people on it (the stage 2 strand)
+--   Grab                          on hit the target is held Hold frames, then thrown Throw studs
+--   Targeted                      the hitbox erupts from the ground under the nearest airborne
+--                                 opponent in front (the impale), holding them HeldFrames
+--   Channel                       active frames are a channel the key's release can end (R heal)
+--   AnyBlockSide                  a block stops it from any side (spores)
+--   Status                        applies this status on hit ("Infested")
+--   BlockStun / BlockPush         blockstun frames (projectiles, which have no attacker frames) /
+--                                 pushback studs on block
+--   HyperArmour                   can't be interrupted during startup
+--   AnimSpeed                     plays the animation at this speed (moves sharing one animation)
+--   FollowUpStun / FollowUpReach  bonus when started within FollowUpWindow of a different Lotus key
+--                                 landing a hit (CombatConfig)
+--   CounterStun                   hit stun on a counter-hit, replacing the usual bonus
+--   RefundOnCounter               a counter-hit gives the meter cost back (stage 3 stab)
 
 export type Guard = "Normal" | "Unblockable" | "Unparryable"
-export type HitKind = "Stun" | "Knockdown" | "Launch" | "Spike"
-export type Slot = "M1" | "M2" | "One"
-export type Arc = "Flat" | "Backhand" | "Overhead" | "Rising" | "Thrust" | "Diagonal" | "Stab"
+export type HitKind = "Stun" | "Knockdown" | "Launch" | "Spike" | "Grab" | "Impale" | "None"
+export type Slot = "M1" | "M2" | "One" | "Two" | "Three" | "Four" | "R" | "G"
+export type Arc =
+	"Flat"
+	| "Backhand"
+	| "Overhead"
+	| "Rising"
+	| "Thrust"
+	| "Diagonal"
+	| "Stab"
+	-- Lotus (CombatFx draws the fungus for these)
+	| "Strand"
+	| "GroundStrand"
+	| "Spike"
+	| "Impale"
+	| "Spore"
+	| "Beam"
+	| "Grab"
+	| "None"
 
 export type Hitbox = { Size: Vector3, Forward: number, Up: number }
 export type OnHit = { Kind: HitKind, Stun: number, Knockback: number, Launch: number, Hang: boolean }
 export type Motion = { Step: number, Lunge: number }
 export type Fx = { Arc: Arc, Hand: "Right" | "Left", Swing: string, Hit: string }
+export type Projectile = { Speed: number, Range: number, Radius: number, Count: number, Spread: number, Ground: boolean }
+export type Grab = { Hold: number, Throw: number }
 
 export type Move = {
 	Id: string,
@@ -65,6 +106,28 @@ export type Move = {
 	Hitstop: number,
 	Motion: Motion,
 	Fx: Fx,
+	-- Magic.
+	Magic: string?,
+	Stage: number,
+	MeterCost: number,
+	MeterGain: number,
+	SetMeter: number?,
+	WhiffPenalty: boolean,
+	Projectile: Projectile?,
+	Grab: Grab?,
+	Targeted: boolean,
+	HeldFrames: number,
+	Channel: boolean,
+	AnyBlockSide: boolean,
+	Status: string?,
+	BlockStun: number,
+	BlockPush: number,
+	HyperArmour: boolean,
+	AnimSpeed: number,
+	FollowUpStun: number,
+	FollowUpReach: number,
+	CounterStun: number?,
+	RefundOnCounter: boolean,
 }
 
 local MoveTypes = {}
@@ -85,7 +148,9 @@ function MoveTypes.Define(t: { [string]: any }): Move
 		Recovery = t.Recovery,
 		WhiffRecovery = t.WhiffRecovery,
 		Damage = t.Damage,
-		Hitbox = { Size = t.Hitbox.Size, Forward = t.Hitbox.Forward, Up = t.Hitbox.Up or 0 },
+		Hitbox = if t.Hitbox
+			then { Size = t.Hitbox.Size, Forward = t.Hitbox.Forward, Up = t.Hitbox.Up or 0 }
+			else { Size = Vector3.one, Forward = 0, Up = 0 },
 		OnHit = {
 			Kind = onHit.Kind or "Stun",
 			Stun = onHit.Stun or 0,
@@ -113,6 +178,36 @@ function MoveTypes.Define(t: { [string]: any }): Move
 			Swing = fx.Swing or "SwordSwing",
 			Hit = fx.Hit or "SwordHit",
 		},
+		Magic = t.Magic,
+		Stage = t.Stage or 0,
+		MeterCost = t.MeterCost or 0,
+		MeterGain = t.MeterGain or 0,
+		SetMeter = t.SetMeter,
+		WhiffPenalty = t.WhiffPenalty == true,
+		Projectile = if t.Projectile
+			then {
+				Speed = t.Projectile.Speed,
+				Range = t.Projectile.Range,
+				Radius = t.Projectile.Radius or 1,
+				Count = t.Projectile.Count or 1,
+				Spread = t.Projectile.Spread or 0,
+				Ground = t.Projectile.Ground == true,
+			}
+			else nil,
+		Grab = if t.Grab then { Hold = t.Grab.Hold, Throw = t.Grab.Throw } else nil,
+		Targeted = t.Targeted == true,
+		HeldFrames = t.HeldFrames or 0,
+		Channel = t.Channel == true,
+		AnyBlockSide = t.AnyBlockSide == true,
+		Status = t.Status,
+		BlockStun = t.BlockStun or 12,
+		BlockPush = t.BlockPush or 0,
+		HyperArmour = t.HyperArmour == true,
+		AnimSpeed = t.AnimSpeed or 1,
+		FollowUpStun = t.FollowUpStun or 0,
+		FollowUpReach = t.FollowUpReach or 0,
+		CounterStun = t.CounterStun,
+		RefundOnCounter = t.RefundOnCounter == true,
 	}
 	assert(move.Id and move.Slot and move.Animation and move.Startup and move.Damage, "MoveTypes.Define: incomplete move")
 	return move

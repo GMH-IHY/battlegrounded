@@ -8,13 +8,15 @@ partial poses are drawn over the rest pose). The page itself is viewer_template.
 (DATA) and the weapon pieces' sizes / colours (EXTRAS) pasted in.
 """
 import json
+
+import numpy as np
 import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from catalog import ALL  # noqa: E402
-from preview import world_pieces, load_weapons, BODY_COLORS  # noqa: E402
+from preview import world_pieces, load_weapons, load_fungus, fungus_stage_for, BODY_COLORS  # noqa: E402
 
 PARTS = list(BODY_COLORS)  # Torso, Head, arms, legs (the order world_pieces draws them in)
 NO_EXTRAS = {"joints": [], "parts": []}
@@ -22,15 +24,21 @@ NO_EXTRAS = {"joints": [], "parts": []}
 
 def export():
     weapons = load_weapons()
+    fungus = load_fungus()
     data, extras = [], []
     for a in ALL:
         keys = []
         for t, p in a["keys"]:
-            pieces = world_pieces(p, NO_EXTRAS, weapons, a["name"].startswith("Dagger"))
+            # Every animation draws the full growth (hidden below its stage) so the piece list is fixed.
+            pieces = world_pieces(p, NO_EXTRAS, weapons, a["name"].startswith("Dagger"), fungus, 3)
             names = PARTS + [f"W{i}" for i in range(len(pieces) - len(PARTS))]
             if not extras:
                 extras = [{"size": [float(x) for x in piece["size"]], "color": list(piece["color"])}
                           for piece in pieces[len(PARTS):]]
+            if fungus_stage_for(a["name"]) == 0:
+                # Hide the growth on non-Lotus animations (shrink it to nothing).
+                for piece in pieces[len(pieces) - len(fungus):]:
+                    piece["m"] = piece["m"] @ np.diag([0.0, 0.0, 0.0, 1.0])
             keys.append({"t": t, "parts": {n: [round(float(x), 4) for x in piece["m"].T.flatten()]
                                            for n, piece in zip(names, pieces)}})
         data.append({"name": a["name"], "loop": a["loop"], "notes": a.get("notes", ""), "keys": keys})

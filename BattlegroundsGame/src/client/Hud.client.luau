@@ -9,8 +9,10 @@
 -- and a crosshair shows in the middle of the screen (the throw aims there).
 -- In burnout the SP bar turns orange and blinks (in steps) until the meter is full again.
 --
--- Live slots: 1 (the sword's 1), RMB (the dagger), Ctrl (race). The others are placeholders for the
--- build slots in the design plan (magic, element, ultimate) until those systems exist.
+-- Live slots: 1 (the sword's 1), 2 / 3 / 4 / R / G (the Lotus Fungus; their names follow your meter
+-- stage, G's border lights up at a full meter), RMB (the dagger), Ctrl (race). Q (element) is a
+-- placeholder until Wind exists. Above HP sits the Lotus meter: three segments (stages at 40 / 80),
+-- blinking cyan in the stage 3 form.
 -- Everything is sized for a 720 px tall screen and scaled to the real one (UIScale).
 
 local Players = game:GetService("Players")
@@ -27,6 +29,7 @@ movement:WaitForChild("MovementConfig")
 ReplicatedStorage:WaitForChild("Combat"):WaitForChild("CombatClient")
 local CombatClient = require(ReplicatedStorage.Combat.CombatClient)
 local Moves = require(ReplicatedStorage.Combat.Moves)
+local CombatConfig = require(ReplicatedStorage.Combat.CombatConfig)
 local Dash = require(ReplicatedStorage.Movement.Dash)
 local Lantern = require(ReplicatedStorage.Movement.Lantern)
 local Config = require(ReplicatedStorage.Movement.MovementConfig)
@@ -45,6 +48,9 @@ local HP_FILL = Color3.fromRGB(46, 160, 38)
 local HP_TEXT = Color3.fromRGB(190, 255, 160)
 local SP_FILL = Color3.fromRGB(28, 104, 196)
 local SP_TEXT = Color3.fromRGB(170, 215, 255)
+local LOTUS_FILL = Color3.fromRGB(15, 45, 54)
+local LOTUS_TEXT = Color3.fromRGB(16, 152, 168)
+local LOTUS_FORM = Color3.fromRGB(16, 152, 168)
 local BURNOUT_FILL = Color3.fromRGB(230, 120, 30)
 local BURNOUT_TEXT = Color3.fromRGB(255, 200, 150)
 local DASH_FILL = Color3.fromRGB(235, 235, 235)
@@ -63,12 +69,12 @@ local HALF_W, HALF_H = (BAR_W - HALF_GAP) / 2, 9
 type SlotSpec = { key: string, name: string, live: string?, cooldown: string? }
 local SLOTS: { SlotSpec } = {
 	{ key = "1", name = "Sword 1", live = "Weapon", cooldown = "Sword.One" },
-	{ key = "2", name = "Magic I" },
-	{ key = "3", name = "Magic II" },
-	{ key = "4", name = "Magic III" },
-	{ key = "R", name = "Magic Special" },
+	{ key = "2", name = "Stab", live = "Magic", cooldown = "Lotus.Two" },
+	{ key = "3", name = "Spore", live = "Magic", cooldown = "Lotus.Three" },
+	{ key = "4", name = "Grab", live = "Magic", cooldown = "Lotus.Four" },
+	{ key = "R", name = "Heal / Rip", live = "Magic", cooldown = "Lotus.R" },
 	{ key = "Q", name = "Element" },
-	{ key = "G", name = "Ultimate" },
+	{ key = "G", name = "Form", live = "Magic", cooldown = "Lotus.G" },
 	{ key = "RMB", name = "Dagger", live = "Secondary", cooldown = "Dagger" },
 	{ key = "Ctrl", name = "Race", live = "Race" },
 }
@@ -200,7 +206,30 @@ hpBar.back.AnchorPoint = Vector2.new(0.5, 1)
 hpBar.back.Position = UDim2.new(0.5, 0, 1, -(HALF_H + 12 + 5 + BAR_H + 6))
 hpBar.back.Parent = column
 
-local BARS_TOP = HALF_H + 12 + 5 + BAR_H + 6 + BAR_H + 8
+-- The Lotus meter, above HP: three segments (stage 1 / 2 / 3 at 40 / 80), the stage on the left.
+local lotusBar = bar("Lotus", BAR_W, BAR_H, LOTUS_FILL, "L1", LOTUS_TEXT)
+lotusBar.back.AnchorPoint = Vector2.new(0.5, 1)
+lotusBar.back.Position = UDim2.new(0.5, 0, 1, -(HALF_H + 12 + 5 + BAR_H + 6 + BAR_H + 6))
+lotusBar.back.Parent = column
+for _, share in { CombatConfig.Stage2At / CombatConfig.LotusMax, CombatConfig.Stage3At / CombatConfig.LotusMax } do
+	local tick = Instance.new("Frame")
+	tick.Name = "StageMark"
+	tick.AnchorPoint = Vector2.new(0.5, 0)
+	tick.Position = UDim2.fromScale(share, 0)
+	tick.Size = UDim2.new(0, 2, 1, 0)
+	tick.BackgroundColor3 = Color3.new(0, 0, 0)
+	tick.BorderSizePixel = 0
+	tick.ZIndex = 2
+	tick.Parent = lotusBar.back
+end
+
+local BARS_TOP = HALF_H + 12 + 5 + BAR_H + 6 + BAR_H + 6 + BAR_H + 8
+-- The names each Lotus slot shows at stages 1 / 2 / 3.
+local STAGE_NAMES: { [string]: { string } } = {
+	["2"] = { "Stab", "Strand", "Spike" },
+	["3"] = { "Spore", "Spore Fan", "Beam" },
+	["4"] = { "Grab", "Grab", "Feast" },
+}
 
 -- Skill slots.
 local slotRow = Instance.new("Frame")
@@ -460,14 +489,36 @@ local function update()
 		spBar.left.Text = if burnout then "BURNOUT" else string.format("%d/%d", math.floor(spValue + 0.5), spTop)
 	end
 
-	-- Weapon / secondary cooldowns.
+	-- The Lotus meter and the slot names of the current stage.
+	local meter = character:GetAttribute("Lotus")
+	local stage = character:GetAttribute("LotusStage")
+	local form = character:GetAttribute("LotusForm") == true
+	local meterValue = if typeof(meter) == "number" then meter else 0
+	local stageValue = if typeof(stage) == "number" then stage else 1
+	setFill(lotusBar, meterValue / CombatConfig.LotusMax)
+	local glow = form and math.floor(os.clock() * 4) % 2 == 0
+	lotusBar.fill.BackgroundColor3 = if glow then LOTUS_FORM else LOTUS_FILL
+	if lotusBar.left then
+		lotusBar.left.Text = if form then "FORM" else string.format("%d/%d", math.floor(meterValue + 0.5), CombatConfig.LotusMax)
+	end
+	if lotusBar.right then
+		lotusBar.right.Text = "L" .. stageValue
+	end
+	for key, names in STAGE_NAMES do
+		slots[key].name.Text = names[math.clamp(stageValue, 1, 3)]
+	end
+	local formReady = meterValue >= CombatConfig.LotusMax and not form
+	slots.G.boxStroke.Color = if formReady then LOTUS_TEXT else SLOT_BORDER
+	slots.G.boxStroke.Thickness = if formReady then 2 else 1
+
+	-- Weapon / secondary / magic cooldowns.
 	local combat = CombatClient.Get(character)
 	for _, spec in SLOTS do
 		local group = spec.cooldown
 		if group then
 			local slot = slots[spec.key]
 			local left = if combat then combat:GetCooldown(group) else 0
-			local total = cooldownTotal[group] or 1
+			local total = if combat and left > 0 then combat:GetCooldownTotal(group) else (cooldownTotal[group] or 1)
 			slot.shade.Size = UDim2.fromScale(1, math.clamp(left / total, 0, 1))
 			slot.timer.Text = if left > 0 then formatSeconds(left) else ""
 			local ready = left <= 0

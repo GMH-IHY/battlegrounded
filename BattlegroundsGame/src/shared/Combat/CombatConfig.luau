@@ -112,6 +112,42 @@ local CombatConfig = {
 	AimAssistRange = 12,
 	AimAssistAngle = 70,
 
+	-- LOTUS FUNGUS (docs/MoveData.md) -------------------------------------------------------------
+	LotusMax = 100,
+	-- Stage 2 from this much meter, stage 3 from Stage3At.
+	Stage2At = 40,
+	Stage3At = 80,
+	-- Taking damage feeds the fungus: meter per HP lost.
+	LotusPerDamage = 0.5,
+	-- R held: the heal channel. A full channel (its Active frames) gives HealHealth and HealMeter;
+	-- letting go early gives the share you channelled. Letting go within RipOutFrames of pressing is a
+	-- tap: rip it out instead (-RipOutHealth, -RipOutMeter).
+	HealHealth = 6,
+	HealMeter = 20,
+	RipOutFrames = 10,
+	RipOutHealth = 10,
+	RipOutMeter = 25,
+	-- At stage 3 (or in the form) you take this much more damage.
+	Stage3DamageTaken = 1.25,
+	-- Missing a stage 3 move: HP lost (never feeds the meter) and a stagger (frames).
+	WhiffHealth = 8,
+	WhiffStagger = 20,
+	-- G: the stage 3 form lasts this long (seconds); stage 3 moves cost no meter meanwhile. After it the
+	-- meter is FormMeterAfter.
+	FormTime = 8,
+	FormMeterAfter = 20,
+	-- Follow-ups: a Lotus move started this soon (seconds) after a different Lotus key landed a hit gets
+	-- its FollowUpStun / FollowUpReach bonus.
+	FollowUpWindow = 1,
+	-- Infested (the stage 2 spores): the next Lotus move (not a spore) that hits their block wraps them
+	-- in growth: knocked down WrapFrames. Lasts InfestedTime seconds or until used.
+	InfestedTime = 6,
+	WrapFrames = 60,
+	-- The impale finds an airborne opponent in front within this range (studs).
+	ImpaleRange = 25,
+	-- How far below the target the impale looks for the floor its growth erupts from (studs).
+	ImpaleFloorSearch = 40,
+
 	-- TRAINING DUMMIES -------------------------------------------------------------------------------
 	-- Health comes back this long after the last hit (seconds).
 	DummyResetTime = 3,

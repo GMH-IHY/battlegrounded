@@ -153,7 +153,10 @@ local function slash(root: BasePart, arc: string, heavy: boolean, hand: string)
 		}, true)
 		return
 	end
-	local shape = ARCS[arc] or ARCS.Flat
+	local shape = ARCS[arc]
+	if not shape then
+		return -- not a sword / dagger cut (the Lotus draws its own: LotusFx)
+	end
 	local segments = if heavy then 7 else 5
 	local width = if heavy then 0.7 else 0.45
 	local radius = shape.radius + (if heavy then 0.5 else 0)

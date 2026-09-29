@@ -173,6 +173,9 @@ function Dummies.Reset(dummy: Dummy)
 	fighter.buildup = 0
 	fighter.draftedUntil = 0
 	fighter.parryLockUntil = 0
+	fighter:SetMeter(0)
+	fighter.formActive = false
+	fighter.infestedUntil = 0
 	dummy.body:Release()
 	dummy.anim:Stop()
 	dummy.shownHits, dummy.shownDamage = 0, 0
