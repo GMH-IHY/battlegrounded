@@ -451,7 +451,7 @@ function Fighter._checkHits(self: Fighter, frame: number, lastActive: boolean)
 	params.FilterType = Enum.RaycastFilterType.Include
 	local others: { Instance } = {}
 	for _, other in self.hooks.all() do
-		if other ~= self and other.humanoid.Health > 0 then
+		if other.character ~= self.character and other.humanoid.Health > 0 then
 			table.insert(others, other.character)
 		end
 	end

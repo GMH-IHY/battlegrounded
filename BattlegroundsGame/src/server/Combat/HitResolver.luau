@@ -76,9 +76,13 @@ function HitResolver.Resolve(attacker: Fighter, target: Fighter, frame: number, 
 		away = flat(attacker.root.CFrame.LookVector)
 	end
 	local push = flat(attacker.root.CFrame.LookVector)
+	-- Plain strings (the type checker narrows the Guard union wrongly across these checks).
+	local guard: string = move.Guard
+	local parryable = guard ~= "Unparryable"
+	local blockable = guard == "Normal"
 
 	-- PARRY ------------------------------------------------------------------------------------
-	if target:ParryOpen(now) and fromFront and move.Guard ~= "Unparryable" then
+	if target:ParryOpen(now) and fromFront and parryable then
 		target:ConsumeParry()
 		target:GainStamina(Config.ParryStaminaGain)
 		local status = attacker:AddBuildup(Config.BuildupParry, target.element)
@@ -97,7 +101,7 @@ function HitResolver.Resolve(attacker: Fighter, target: Fighter, frame: number, 
 	end
 
 	-- BLOCK ------------------------------------------------------------------------------------
-	if target:GuardUp() and fromFront and move.Guard == "Normal" then
+	if target:GuardUp() and fromFront and blockable then
 		if move.CrossUp and not lastActive then
 			return nil -- decided on the last active frame: it may still get behind the guard
 		end

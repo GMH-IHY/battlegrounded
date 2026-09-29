@@ -10801,7 +10801,10 @@ end
 
 local function near(position: Vector3): boolean
 	local camera = Workspace.CurrentCamera
-	return camera ~= nil and (camera.CFrame.Position - position).Magnitude <= MAX_DISTANCE
+	if not camera then
+		return false
+	end
+	return (camera.CFrame.Position - position).Magnitude <= MAX_DISTANCE
 end
 
 local function rootOf(model: Model?): BasePart?
@@ -11036,7 +11039,8 @@ end)
 local remotes = CombatRemotes.Get()
 
 remotes.Fx.OnClientEvent:Connect(function(info: { [string]: any })
-	local kind = info.type
+	local kind: string = if typeof(info.type) == "string" then info.type else ""
+	local isStatus = kind == "Status"
 	local attacker: Model? = if typeof(info.attacker) == "Instance" and info.attacker:IsA("Model") then info.attacker else nil
 	local target: Model? = if typeof(info.target) == "Instance" and info.target:IsA("Model") then info.target else nil
 	local position: Vector3 = if typeof(info.position) == "Vector3" then info.position else Vector3.zero
@@ -11046,7 +11050,7 @@ remotes.Fx.OnClientEvent:Connect(function(info: { [string]: any })
 	if kind == "Hitbox" then
 		return -- HitboxViewer draws these
 	end
-	if not near(position) and kind ~= "Status" then
+	if not isStatus and not near(position) then
 		return
 	end
 	if kind == "Hit" then
@@ -24247,7 +24251,7 @@ function Fighter._checkHits(self: Fighter, frame: number, lastActive: boolean)
 	params.FilterType = Enum.RaycastFilterType.Include
 	local others: { Instance } = {}
 	for _, other in self.hooks.all() do
-		if other ~= self and other.humanoid.Health > 0 then
+		if other.character ~= self.character and other.humanoid.Health > 0 then
 			table.insert(others, other.character)
 		end
 	end
@@ -24623,9 +24627,13 @@ function HitResolver.Resolve(attacker: Fighter, target: Fighter, frame: number, 
 		away = flat(attacker.root.CFrame.LookVector)
 	end
 	local push = flat(attacker.root.CFrame.LookVector)
+	-- Plain strings (the type checker narrows the Guard union wrongly across these checks).
+	local guard: string = move.Guard
+	local parryable = guard ~= "Unparryable"
+	local blockable = guard == "Normal"
 
 	-- PARRY ------------------------------------------------------------------------------------
-	if target:ParryOpen(now) and fromFront and move.Guard ~= "Unparryable" then
+	if target:ParryOpen(now) and fromFront and parryable then
 		target:ConsumeParry()
 		target:GainStamina(Config.ParryStaminaGain)
 		local status = attacker:AddBuildup(Config.BuildupParry, target.element)
@@ -24644,7 +24652,7 @@ function HitResolver.Resolve(attacker: Fighter, target: Fighter, frame: number, 
 	end
 
 	-- BLOCK ------------------------------------------------------------------------------------
-	if target:GuardUp() and fromFront and move.Guard == "Normal" then
+	if target:GuardUp() and fromFront and blockable then
 		if move.CrossUp and not lastActive then
 			return nil -- decided on the last active frame: it may still get behind the guard
 		end
