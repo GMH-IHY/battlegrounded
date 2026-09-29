@@ -15,13 +15,11 @@
 -- TRANSITIONS: when the state changes, a short clip plays in the loop's place first, so the body
 -- never jumps straight from one loop into another (all poses snap; the clips add the in-betweens):
 --   standing -> walking / running   WalkStart / SprintStart (end on the loop's first pose)
---   running -> standing              SprintStop (a skid)
 --   sharp turn while running         SprintTurn
---   landing                          LandHeavy (long fall, no roll: the motor's landing lag),
---                                    LandRun (landing while moving), LandLight (standing)
+--   landing                          LandRun (landing while moving), LandLight (standing)
 -- A clip gives way as soon as it no longer fits: moving again cuts a stop or a standing landing,
--- stopping cuts a start, and leaving the ground or grabbing a truss cuts any of them. Only the
--- heavy landing plays out (you can't move during its lag anyway).
+-- stopping cuts a start, and leaving the ground or grabbing a truss cuts any of them. Stopping
+-- from a run goes straight to Idle (no skid).
 --
 -- The playing locomotion animation's name is mirrored to the character attribute "LocoAnim"
 -- (tests and debug tools read it).
@@ -52,7 +50,7 @@ end
 assert(animator, "Animate: no Animator")
 
 local LOOPS = { "Idle", "WalkForward", "Sprint", "Jump", "Fall", "Climb" }
-local CLIPS = { "WalkStart", "SprintStart", "SprintStop", "SprintTurn", "LandLight", "LandRun", "LandHeavy" }
+local CLIPS = { "WalkStart", "SprintStart", "SprintTurn", "LandLight", "LandRun" }
 -- Animations that share a stride; switching between them keeps the step timing.
 local STRIDE: { [string]: boolean } = {
 	WalkForward = true,
@@ -79,9 +77,7 @@ local CLIP_RULES: { [string]: ClipRule } = {
 	SprintStart = { cutWhenMoving = false, cutWhenStopped = true },
 	SprintTurn = { cutWhenMoving = false, cutWhenStopped = true },
 	LandRun = { cutWhenMoving = false, cutWhenStopped = true },
-	SprintStop = { cutWhenMoving = true, cutWhenStopped = false },
 	LandLight = { cutWhenMoving = true, cutWhenStopped = false },
-	LandHeavy = { cutWhenMoving = false, cutWhenStopped = false },
 }
 
 local tracks: { [string]: AnimationTrack } = {}
@@ -120,8 +116,6 @@ local LANDING_MEMORY = 0.15
 -- A tiny landing (a step down) doesn't play a landing clip.
 local LAND_MIN_FALL = 2.5
 local LAND_MIN_IMPACT = 30
--- Running at least this fast (studs/s) when you stop plays the skid.
-local STOP_MIN_SPEED = 18
 -- A turn sharper than this (cos of the angle between move directions) while running plays SprintTurn.
 local TURN_COS = math.cos(math.rad(110))
 local TURN_MIN_SPEED = 16
@@ -275,15 +269,9 @@ local function transitionFor(loop: string?, speed: number, move: Vector3, now: n
 	local landing = pendingLanding
 	pendingLanding = nil
 	if landing and not landing.handled and character:GetAttribute("Parkour") == nil then
-		if landing.heavy then
-			return "LandHeavy"
-		end
 		if landing.fall >= LAND_MIN_FALL or landing.impact >= LAND_MIN_IMPACT then
 			return if loop and MOVING[loop] then "LandRun" else "LandLight"
 		end
-	end
-	if loop == "Idle" and lastLoop == "Sprint" and lastSpeed >= STOP_MIN_SPEED then
-		return "SprintStop"
 	end
 	if lastLoop == "Idle" and loop == "Sprint" then
 		return "SprintStart"

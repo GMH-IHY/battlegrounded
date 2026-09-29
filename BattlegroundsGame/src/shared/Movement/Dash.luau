@@ -314,9 +314,6 @@ function Dash.Request(self: Dash, moveDirection: Vector3?, forward: Vector3?): b
 	if mode == "Air" and self.airDashesUsed >= Config.AirDashes then
 		return false
 	end
-	if self.motor:IsLandingLag() then
-		return false
-	end
 	-- An attack's wind-up and hit can't be dashed out of (its recovery can).
 	local attackPhase = self.character:GetAttribute("AttackPhase")
 	if attackPhase == "Startup" or attackPhase == "Active" then

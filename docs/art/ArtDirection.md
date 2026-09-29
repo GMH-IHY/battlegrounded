@@ -18,7 +18,7 @@ Classic 2010–2014 Roblox in the style of Die of Death and JJS: blocky R6 chara
 - **Constant easing, always.** Every pose snaps to the next; there is no tweening between keyframes and no crossfade between animations (FadeTime 0).
 - **Choppy but smooth.** The flow comes from pose count, not blending. Every animation gets extra in-between poses at its **start** (anticipation: a small wind-up before the big move) and its **end** (settle: overshoot, then back to neutral), so starts and stops read as motion instead of popping.
 - **Start slow, end fast, recoil.** A small first move, then the big one, then a recoil. R6 has no elbows or knees, so the body itself drops, rises, leans and twists.
-- **Transitions exist.** Starting to run, stopping, turning around, and light / heavy landings are their own short animations, so switching states never jumps straight from one loop to another.
+- **Transitions exist.** Starting to walk or run, turning around, and landings are their own short animations, so switching states never jumps straight from one loop to another. Stopping goes straight to idle (no skid).
 - **Pose rate:** 12–20 poses per second for actions, fewer for idles.
 - **Previews:** `tools/animations/preview.py` (contact sheets) and `tools/animations/viewer.py` (plays them at real speed in a browser).
 - **Checked automatically** (`python -m pytest tests`): no joint turns more than 75° between two poses unless the pose is marked as a deliberate snap (an impact frame), the first and last move of every one-shot is at most 42° (it has its in-betweens), no hold shorter than one frame, loops close, and ground moves keep a foot on the floor.
@@ -30,8 +30,8 @@ Effects are a few parts whose size, position and transparency change in steps (c
 
 | Effect | Look |
 | --- | --- |
-| Sweat while running | Small blue balls popping off the head |
-| Dust (landing, dash) | A few grey cubes that step outward and shrink |
+| Sweat (burnout only) | Small blue balls popping off the head |
+| Dust (landing, dash) | A low-poly cloud, Die of Death style: 3–6 faceted grey puffs (two cubes turned against each other) that swell, drift out and fade in steps |
 | Explosion / burst | Low-poly sphere shells growing in 3–4 steps, then gone |
 | Slash | Thin flat arc (wedges) on one frame, fading in steps |
 | Hit spark | 3–5 thin white plates in a star, 2–3 frames |

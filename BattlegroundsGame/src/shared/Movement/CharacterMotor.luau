@@ -134,7 +134,6 @@ type MotorData = {
 	airPeakY: number,
 	jumpLocks: { [string]: boolean? },
 	speedScales: { [string]: number? },
-	landingLagUntil: number,
 	landedListeners: { (LandingInfo) -> () },
 }
 
@@ -144,7 +143,6 @@ export type LandingInfo = {
 	speed: number, -- horizontal speed at touchdown
 	impact: number, -- downward speed at touchdown
 	handled: boolean, -- another move took the landing over (landing roll)
-	heavy: boolean, -- a heavy landing: HeavyLandLag of slowed movement, no jumping or dashing
 }
 
 export type CharacterMotor = typeof(setmetatable({} :: MotorData, CharacterMotor))
@@ -288,7 +286,6 @@ function CharacterMotor.new(character: Model): CharacterMotor
 		airPeakY = root.Position.Y,
 		jumpLocks = {},
 		speedScales = {},
-		landingLagUntil = 0,
 		landedListeners = {},
 	}, CharacterMotor)
 
@@ -446,7 +443,7 @@ function CharacterMotor.SetLandingHandler(self: CharacterMotor, handler: (() -> 
 	self.landingHandler = handler
 end
 
--- Blocks jumping while any system holds a lock (landing roll, parkour move, heavy landing). Each
+-- Blocks jumping while any system holds a lock (landing roll, parkour move). Each
 -- system uses its own key, so one letting go never re-enables jumping under another.
 function CharacterMotor.SetJumpLock(self: CharacterMotor, key: string, locked: boolean)
 	if (self.jumpLocks[key] == true) == locked then
@@ -471,11 +468,6 @@ function CharacterMotor._speedScale(self: CharacterMotor): number
 		end
 	end
 	return scale
-end
-
--- True during a heavy landing's lag (see HeavyLandHeight in MovementConfig).
-function CharacterMotor.IsLandingLag(self: CharacterMotor): boolean
-	return os.clock() < self.landingLagUntil
 end
 
 -- Calls `callback(info)` on every landing from the air. Returns a function that disconnects it.
@@ -574,13 +566,6 @@ function CharacterMotor._step(self: CharacterMotor, dt: number)
 		else
 			self.humanoid.WalkSpeed = self:GetWalkSpeed()
 		end
-	end
-
-	-- Heavy landing lag over: jumping comes back.
-	if self.landingLagUntil > 0 and os.clock() >= self.landingLagUntil then
-		self.landingLagUntil = 0
-		self.character:SetAttribute("LandingLag", false)
-		self:SetJumpLock("HeavyLand", false)
 	end
 
 	-- A jump buffered from the end of another move.
@@ -741,17 +726,10 @@ function CharacterMotor._enterMode(self: CharacterMotor, newMode: Mode)
 	end
 end
 
--- A landing from the air: heavy-landing lag if it was a long fall nobody else handled, then tell
--- the listeners (Animate, effects).
+-- A landing from the air: tells the listeners (Animate, effects).
 function CharacterMotor._landed(self: CharacterMotor, handled: boolean, speed: number, impact: number)
 	local fall = math.max(self.airPeakY - self.root.Position.Y, 0)
-	local heavy = not handled and fall >= Config.HeavyLandHeight
-	if heavy then
-		self.landingLagUntil = os.clock() + Config.HeavyLandLag
-		self.character:SetAttribute("LandingLag", true)
-		self:SetJumpLock("HeavyLand", true)
-	end
-	local info: LandingInfo = { fall = fall, speed = speed, impact = impact, handled = handled, heavy = heavy }
+	local info: LandingInfo = { fall = fall, speed = speed, impact = impact, handled = handled }
 	for _, listener in table.clone(self.landedListeners) do
 		task.spawn(listener, info)
 	end
@@ -787,14 +765,6 @@ function CharacterMotor._stepGround(self: CharacterMotor, dt: number)
 	local run = self:GetRunSpeed()
 	local target = if self.sprinting then run else walk
 	local speed = math.max(self.groundSpeed, walk)
-	if self:IsLandingLag() then
-		-- Heavy landing: barely moving until the lag is over (a landing roll skips it).
-		speed = walk * Config.HeavyLandSpeedScale
-		self.groundSpeed = speed
-		self.lastMoveDirection = moveDirection
-		humanoid.WalkSpeed = speed
-		return
-	end
 
 	-- Sharp turns while running cost speed.
 	if speed > walk and self.lastMoveDirection ~= Vector3.zero then

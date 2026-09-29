@@ -21,11 +21,9 @@ local AnimationConfig = {
 		-- Transitions Animate plays between the loops above.
 		WalkStart = "",
 		SprintStart = "",
-		SprintStop = "",
 		SprintTurn = "",
 		LandLight = "",
 		LandRun = "",
-		LandHeavy = "",
 		DashForward = "",
 		DashLeft = "",
 		DashRight = "",

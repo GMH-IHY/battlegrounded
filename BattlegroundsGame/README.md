@@ -11,7 +11,7 @@ The place contains:
 - **ReplicatedStorage > Movement**: the movement modules (`CharacterMotor`, `Dash`, `WallHop`, `AutoParkour`, `LandingRoll`, `Stamina`), the Moth race (`Lantern`, `MothParts`), `Controls` (the keys as named actions), sounds and all tuning numbers (`MovementConfig`, `AnimationConfig`, `SoundConfig`).
 - **ReplicatedStorage > Combat**: `M1Preview`, a placeholder sword M1 chain (animations and timings, no damage) until the combat system exists.
 - **StarterPlayer > StarterCharacterScripts**: `MovementController` (input), `Animate` (locomotion loops + transition clips), `MovementSounds`.
-- **StarterPlayer > StarterPlayerScripts**: the HUD, `BodyLean` (stepped lean into turns), `MovementFx` (sweat balls, dust cubes), head look, shift lock (Tab), and Studio tools (the test panel and debug views).
+- **StarterPlayer > StarterPlayerScripts**: the HUD, `BodyLean` (a very subtle stepped lean into turns), `MovementFx` (sweat in burnout, dust clouds), head look, shift lock (Tab), and Studio tools (the test panel and debug views).
 - **ServerScriptService**: race setup, lantern, sounds, head look, collision groups, dash punch (until combat exists), and `StudioAnimationMirror`, which lets unpublished animations play in Studio playtests.
 - **Workspace**: a baseplate, a spawn, **MovementTestCourse** (labelled obstacles: jump box, tall wall, 80-stud fall tower, runway, vault box, slide gap, ledge), **WallHopAlley**, **DashTestDummy**, and **AnimRig_R6** (the dummy the Animation Editor poses).
 

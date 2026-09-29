@@ -57,10 +57,9 @@ Movement is momentum-based and runs on the client (the player owns their charact
 **What the movement rework adds (phase 1):**
 
 - Side or back dash → M1: the dash ends on the click, keeping its speed, and the swing starts that frame. A front dash's M1 is the dash punch (the future running lunge). M1 late in a landing roll (from 0.25 s) or during a Moth flight cuts into a swing too.
-- Transition clips (walk / sprint start, skid stop, sprint turn, light / running / heavy landing) and in-betweens at the start and end of every animation: choppy but smooth.
-- **Heavy landing:** falling at least 16 studs without a landing roll = 0.25 s of barely moving, no jump, no dash (MovementConfig HeavyLand*). The roll is how you skip it.
-- A stepped lean of the torso into turns and with speed changes (every character, visual only).
-- Small retro effects: sweat balls when running, dust cubes when landing hard and when a dash starts.
+- Transition clips (walk / sprint start, sprint turn, light / running landing) and in-betweens at the start and end of every animation: choppy but smooth. Stopping from a run goes straight to idle (no skid). There's no heavy landing: a long fall never locks you.
+- An extremely subtle stepped lean of the torso into turns and with speed changes (at most 3°; every character, visual only).
+- Small retro effects: sweat balls only while burnt out, a low-poly dust cloud when landing hard and when a dash starts.
 - Until combat exists, M1 is a placeholder 3-hit sword swing with the real timings and no damage.
 
 ## Combat core
