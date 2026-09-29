@@ -1,4 +1,4 @@
-"""Action animations: dashes (front / left / right / back / dash punch) and parkour (landing roll,
+"""Action animations: dashes (front / left / right / back) and parkour (landing roll,
 vault, ledge climb, slide, wall run, wall hop). Action priority: they play over locomotion.
 
 The key poses are the approved v2 designs (Isaac's JJS parkour clip, stepped through at 60 fps);
@@ -7,7 +7,6 @@ a settle, and no joint jumps more than ~75 deg between two poses except marked i
 
 Durations come from the code / MovementConfig and must stay as they are:
   DashForward 0.45 s, DashLeft / DashRight / DashBack 0.34 s (played at speed 1).
-  DashPunch 0.81 s: wind-up 0.16 (the jab lands at 0.16), hitbox 0.1, endlag 0.55.
   LandingRoll: stretched by the code to the roll time (0.45 s).
   Vault (+ step-up) 0.36 s, LedgeClimb 0.55 s, Slide loop, WallRun loop 0.24 s, WallHop 0.36 s.
 """
@@ -260,38 +259,6 @@ DASH_BACK = seq("DashBack", ACTION, False, bd_keys,
                 "Back-step: right leg reaches back and leads, left foot stays under, body over the feet; "
                 "left arm swings forward, right arm drops back; legs gather and settle.", ground=True)
 
-# DASH PUNCH, 0.81 s: still in the lunge, the right arm cocks back with the torso twisted away;
-# the straight jab SNAPS out at 0.16 s (the hitbox) with the right shoulder driven forward; endlag
-# with both fists up by the face; one arm drops, recover.
-LUNGE_LEGS = dict(rl=(-8, 3), ll=(72, 3))
-dp_cock = T(lean=40, turn=22, head=(-30, 0, -18), ra=(-30, 14), la=(95, 8, 22), **LUNGE_LEGS)
-dp_cock2 = T(lean=42, turn=34, head=(-32, 0, -28), ra=(-55, 18), la=(100, 8, 26), **LUNGE_LEGS)
-dp_jab = T(lean=46, turn=-32, head=(-34, 0, 26), ra=(136, 2, 6), la=(40, 6, 30), rl=(-20, 3), ll=(80, 3))
-dp_jab2 = T(lean=44, turn=-28, head=(-32, 0, 22), ra=(132, 4, 6), la=(45, 6, 30), rl=(-18, 3), ll=(78, 3))
-dp_guard = T(lean=14, head=(-10, 0, 0), ra=(150, 6, 28), la=(142, 6, 30), rl=(-8, 3), ll=(35, 3))
-dp_drop = T(lean=12, head=(-8, 0, 0), ra=(146, 6, 28), la=(30, 6, 10), rl=(-6, 3), ll=(30, 3))
-dp_recover = T(lean=8, head=(-5, 0, 0), ra=(20, 5), la=(10, 5), rl=(0, 2), ll=(14, 2))
-dp_stand = T(lean=4, head=(-2, 0, 0), ra=(6, 4), la=(4, 4), rl=(0, 2), ll=(6, 2))
-dp_keys = check_length(planted(timeline([
-    (dp_cock, 0.04),
-    *tween(dp_cock, dp_cock2, ONE, 0.04),
-    (dp_cock2, 0.08),                                 # the jab lands at 0.16
-    (dp_jab, 0.06),
-    (dp_jab2, 0.04),
-    *tween(dp_jab2, dp_guard, EVEN, 0.03),
-    (dp_guard, 0.17),
-    *tween(dp_guard, dp_drop, ONE, 0.03),
-    (dp_drop, 0.15),
-    *tween(dp_drop, dp_recover, EVEN, 0.03),
-    (dp_recover, 0.04),
-    *tween(dp_recover, dp_stand, ONE, 0.02),
-    (dp_stand, 0.02),
-])), 0.81, "DashPunch")
-DASH_PUNCH = seq("DashPunch", ACTION, False, dp_keys,
-                 "Right arm cocks back with the torso twisted away, the jab snaps out at 0.16 s with the "
-                 "shoulder driven forward; endlag with both fists up by the face, left arm drops, recover.",
-                 ground=True, snaps=(3,))
-
 PARKOUR = [LANDING_ROLL, VAULT, LEDGE_CLIMB, SLIDE, WALL_RUN_RIGHT, WALL_RUN_LEFT, WALL_HOP_RIGHT, WALL_HOP_LEFT]
-DASHES = [DASH_FORWARD, DASH_LEFT, DASH_RIGHT, DASH_BACK, DASH_PUNCH]
+DASHES = [DASH_FORWARD, DASH_LEFT, DASH_RIGHT, DASH_BACK]
 ALL_NEW = PARKOUR + DASHES

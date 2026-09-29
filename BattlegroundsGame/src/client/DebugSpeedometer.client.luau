@@ -2,7 +2,8 @@
 -- DebugSpeedometer (LocalScript)
 -- Location: StarterPlayer > StarterPlayerScripts > DebugSpeedometer
 --
--- On-screen speed counter for checking movement against MovementConfig.
+-- On-screen speed counter for checking movement against MovementConfig, plus combat frame data
+-- (the move you're in, its frame and phase, what your last move did and its frame advantage).
 -- Press F3 to hide/show. Turn it off with MovementConfig.DebugSpeedometer = false.
 
 local Players = game:GetService("Players")
@@ -29,6 +30,8 @@ local Lantern = require(ReplicatedStorage.Movement.Lantern)
 local Stamina = require(ReplicatedStorage.Movement.Stamina)
 local Config = require(ReplicatedStorage.Movement.MovementConfig)
 local Perf = require(ReplicatedStorage.Movement.Perf)
+ReplicatedStorage:WaitForChild("Combat"):WaitForChild("CombatClient")
+local CombatClient = require(ReplicatedStorage.Combat.CombatClient)
 
 if not Config.DebugSpeedometer then
 	return
@@ -55,7 +58,7 @@ gui.DisplayOrder = 100
 local frame = Instance.new("Frame")
 frame.AnchorPoint = Vector2.new(0, 1)
 frame.Position = UDim2.new(0, 10, 1, -10)
-frame.Size = UDim2.fromOffset(420, 222)
+frame.Size = UDim2.fromOffset(460, 240)
 frame.BackgroundColor3 = Color3.new(0, 0, 0)
 frame.BackgroundTransparency = 0.45
 frame.BorderSizePixel = 0
@@ -171,13 +174,23 @@ local function onFrame(dt: number)
 			then colour(dash:GetPhase() .. " " .. dash:GetKind(), YELLOW)
 			elseif cooldown > 0 then colour(string.format("%.1fs", cooldown), RED)
 			else colour("ready", GREEN)
-		local punch = dash:GetLastPunchResult()
-		dashText = string.format(
-			"Dash: %s   last %.1f studs%s",
-			state,
-			dash:GetLastDistance(),
-			if punch ~= "" then "   punch: " .. punch else ""
-		)
+		dashText = string.format("Dash: %s   last %.1f studs", state, dash:GetLastDistance())
+	end
+
+	-- Frame data: the move you're in (frame / phase), what the last one did, its advantage.
+	local combat = if character then CombatClient.Get(character) else nil
+	local combatText = "Combat: -"
+	if combat and character then
+		local combatState = tostring(character:GetAttribute("CombatState") or "-")
+		local moveId = combat:GetMoveId()
+		local moveText = if moveId
+			then colour(string.format("%s  f%d %s", moveId, combat:GetFrame(), combat:GetPhase()), YELLOW)
+			else "-"
+		local advantage = combat:GetLastAdvantage()
+		local advText = if advantage == nil then ""
+			else colour(string.format("  %+d", advantage), if advantage >= 0 then GREEN else RED)
+		combatText = string.format("Combat: %s   %s   last %s %s%s", combatState, moveText, combat:GetLastMove(),
+			combat:GetLastResult(), advText)
 	end
 
 	local hop = if character then WallHop.Get(character) else nil
@@ -215,7 +228,8 @@ local function onFrame(dt: number)
 
 	local stamina = if character then Stamina.Get(character) else nil
 	local staminaText = if stamina
-		then string.format("Stamina: %d / %d", math.floor(stamina:GetValue() + 0.5), stamina:GetMax())
+		then string.format("Stamina: %d / %d%s", math.floor(stamina:GetValue() + 0.5), stamina:GetMax(),
+			if stamina:IsBurnout() then "  " .. colour("BURNOUT", RED) else "")
 		else "Stamina: -"
 	local lantern = if character then Lantern.Get(character) else nil
 	local lanternText = "Lantern: -"
@@ -257,6 +271,7 @@ local function onFrame(dt: number)
 		rollText,
 		parkourText,
 		staminaText,
+		combatText,
 		lanternText,
 		string.format("Rig: %s", rig),
 		colour("F3 to hide   F2 collision boxes", GREY),

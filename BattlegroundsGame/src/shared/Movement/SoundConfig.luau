@@ -31,10 +31,17 @@ local S: { [string]: Entry } = {
 
 	-- DASH ------------------------------------------------------------------------
 	Dash = { File = "universeDash.ogg", Id = "", Volume = 0.7, Vary = 0.06, Range = 90 },
-	DashPunchSwing = { File = "universeHeavySwing.ogg", Id = "", Volume = 0.7, Vary = 0.06 },
-	DashPunchSwing2 = { File = "universeHeavySwing2.ogg", Id = "", Volume = 0.7, Vary = 0.06 },
-	DashPunchHit = { File = "universeClash.ogg", Id = "", Volume = 0.8, Vary = 0.05, Range = 100 },
-	DashPunchHit2 = { File = "universeClash2.ogg", Id = "", Volume = 0.8, Vary = 0.05, Range = 100 },
+
+	-- COMBAT (move data picks the swing / hit sound: MoveSets Fx.Swing / Fx.Hit) --------------
+	SwordSwing = { File = "universeSwoosh.ogg", Id = "", Volume = 0.6, Speed = 1.25, Vary = 0.08, Range = 80 },
+	SwordSwingHeavy = { File = "universeHeavySwing.ogg", Id = "", Volume = 0.7, Vary = 0.06, Range = 90 },
+	SwordHit = { File = "universeClash2.ogg", Id = "", Volume = 0.75, Speed = 1.15, Vary = 0.06, Range = 100 },
+	SwordHitHeavy = { File = "universeClash.ogg", Id = "", Volume = 0.85, Vary = 0.05, Range = 110 },
+	DaggerSwing = { File = "universeSwoosh.ogg", Id = "", Volume = 0.5, Speed = 1.6, Vary = 0.08, Range = 70 },
+	DaggerHit = { File = "universeClash2.ogg", Id = "", Volume = 0.6, Speed = 1.5, Vary = 0.06, Range = 90 },
+	CounterHit = { File = "universeHeavySwing2.ogg", Id = "", Volume = 0.6, Speed = 0.7, Range = 100 },
+	Block = { File = "universeClash.ogg", Id = "", Volume = 0.6, Speed = 1.5, Vary = 0.05, Range = 90 },
+	Parry = { File = "sparkles.ogg", Id = "", Volume = 0.9, Speed = 1.3, Range = 120 },
 
 	-- PARKOUR ---------------------------------------------------------------------
 	WallRun = { File = "universeFootStepLoop.ogg", Id = "", Volume = 0.55, Speed = 2.0, Looped = true, Range = 60 },

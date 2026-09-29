@@ -105,7 +105,7 @@ local MovementConfig = {
 
 	-- DASH (Shift) ------------------------------------------------------------
 	-- The direction comes from the keys you hold, relative to the camera:
-	--   no keys or W (W+A / W+D count too) -> front dash: long, and M1 during it throws the dash punch.
+	--   no keys or W (W+A / W+D count too) -> front dash: long, and M1 during it is the running lunge.
 	--   A, D or S                          -> side / back quick-step: short.
 	-- Both follow the camera while they travel, so you can curve them by turning.
 	-- One dash, then a cooldown (JJS-style, a little shorter than JJS's).
@@ -133,22 +133,6 @@ local MovementConfig = {
 	AirDashes = 1,
 	-- Invincibility at the very start of a dash (for when combat exists). 4 frames at 60 fps.
 	DashIFrames = 4 / 60,
-
-	-- DASH PUNCH (M1 during a front dash) -------------------------------------
-	-- You keep sliding while winding up the jab, then the fist lands. Heavy endlag after.
-	DashPunchWindup = 0.16, -- from M1 to the hit
-	DashPunchActive = 0.1, -- how long the hitbox stays out
-	DashPunchEndlag = 0.55, -- stuck in place after the hitbox ends
-	DashPunchBlockedEndlag = 0.3, -- extra endlag when the punch is blocked (once blocking exists)
-	-- The slide carries on through the wind-up and slows to a stop by the hit. The punch
-	-- always covers at least this far (so a punch thrown at the very end still lunges).
-	DashPunchMinLunge = 5,
-	DashPunchDamage = 4,
-	-- Hitbox in front of the torso (studs): width, height, depth.
-	DashPunchHitbox = Vector3.new(5, 5, 5),
-	-- The punch ragdolls instead of stunning if it lands before the dash has traveled this
-	-- share of FrontDashDistance.
-	DashPunchRagdollShare = 0.5,
 
 	-- WALL HOP ----------------------------------------------------------------
 	-- Jump, then in the air next to a wall either keep HOLDING Space or PRESS it again, while your
@@ -224,11 +208,11 @@ local MovementConfig = {
 	LandingRollTurnKeep = 0.7,
 
 	-- CANCELS INTO ATTACKS -----------------------------------------------------
-	-- M1 during a side or back dash ends the dash right there, keeping its speed, and swings. (During a
-	-- front dash M1 is the dash punch.) M1 late in a landing roll does the same, from this long into
-	-- the roll (seconds). Walking speed while an attack plays is scaled by AttackMoveSpeedScale.
+	-- An attack during a side or back dash ends the dash right there, keeping its speed, and swings.
+	-- (A front dash's M1 is the running lunge, which takes the dash's speed.) An attack late in a
+	-- landing roll does the same, from this long into the roll (seconds). Walking speed while
+	-- attacking: CombatConfig.AttackMoveSpeedScale.
 	RollAttackCancelTime = 0.25,
-	AttackMoveSpeedScale = 0.45,
 
 	-- AUTO PARKOUR ------------------------------------------------------------
 	-- Sprint into an obstacle and you vault it, step up onto it, climb it or slide under it
@@ -293,12 +277,9 @@ local MovementConfig = {
 	MomentumMaxSpeed = 50,
 
 	-- STAMINA -------------------------------------------------------------------
-	-- One stamina meter for every fighter; each race's special (Left Ctrl) spends it its own way.
-	-- It comes back after StaminaRegenDelay seconds of not spending, faster on the ground.
+	-- The meter is the server's (CombatServer; refill, burnout and costs in CombatConfig). Race
+	-- specials (Left Ctrl) spend it through the client Stamina module.
 	StaminaMax = 100,
-	StaminaRegenDelay = 0.9,
-	StaminaRegenGround = 45, -- per second
-	StaminaRegenAir = 18, -- per second
 
 	-- RACES -----------------------------------------------------------------------
 	-- Until the loadout menu exists, every player spawns as this race ("Moth" or "" for none).

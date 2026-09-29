@@ -103,6 +103,7 @@ type MotorData = {
 
 	mode: Mode,
 	suspended: boolean,
+	suspenders: { [string]: boolean? },
 	destroyed: boolean,
 
 	sprinting: boolean,
@@ -255,6 +256,7 @@ function CharacterMotor.new(character: Model): CharacterMotor
 
 		mode = "Passive" :: Mode,
 		suspended = false,
+		suspenders = {},
 		destroyed = false,
 
 		sprinting = false,
@@ -402,13 +404,17 @@ end
 -- API FOR OTHER MOVEMENT SYSTEMS ---------------------------------------------
 
 -- Hand control to another system (dash, wall run, ability). The motor stops applying forces.
-function CharacterMotor.Suspend(self: CharacterMotor)
+-- `key` names who holds it (default "Move", shared by the movement systems, which never overlap);
+-- combat knockback uses its own key so a movement move ending can't hand control back mid-hit.
+function CharacterMotor.Suspend(self: CharacterMotor, key: string?)
+	self.suspenders[key or "Move"] = true
 	self.suspended = true
 end
 
 -- Take control back. The motor reads the body's current velocity, so momentum carries over.
-function CharacterMotor.Resume(self: CharacterMotor)
-	self.suspended = false
+function CharacterMotor.Resume(self: CharacterMotor, key: string?)
+	self.suspenders[key or "Move"] = nil
+	self.suspended = next(self.suspenders) ~= nil
 end
 
 -- Overwrite the carried horizontal momentum (e.g. a launch). Direction on the ground still
@@ -453,7 +459,7 @@ function CharacterMotor.SetJumpLock(self: CharacterMotor, key: string, locked: b
 	self.humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, next(self.jumpLocks) == nil)
 end
 
--- Slows walking and running while a system holds a scale (an attack swinging: AttackMoveSpeedScale).
+-- Slows walking and running while a system holds a scale (an attack swinging: CombatConfig.AttackMoveSpeedScale).
 -- Each system uses its own key; the slowest scale wins. nil removes it. Momentum above the new
 -- speed still bleeds off as usual, so a dash cancelled into an attack slides on for a moment.
 function CharacterMotor.SetSpeedScale(self: CharacterMotor, key: string, scale: number?)

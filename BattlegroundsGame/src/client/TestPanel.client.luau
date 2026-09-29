@@ -21,7 +21,7 @@ local suitesFolder = testsFolder:WaitForChild("Suites")
 
 local TOGGLE_KEY = Enum.KeyCode.F4
 -- In the order they run. Slow suites are left out of "Run all".
-local ORDER = { "Animation", "Basics", "Dash", "Attacks", "Landing", "WallHop", "Parkour", "Flow", "Truss", "Moth", "Performance", "ParkourSweep" }
+local ORDER = { "Animation", "Basics", "Dash", "Attacks", "Combat", "Landing", "WallHop", "Parkour", "Flow", "Truss", "Moth", "Performance", "ParkourSweep" }
 local SLOW: { [string]: boolean } = { ParkourSweep = true }
 
 local suites: { Harness.Suite } = {}

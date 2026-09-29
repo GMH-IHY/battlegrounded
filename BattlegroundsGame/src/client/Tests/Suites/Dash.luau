@@ -1,7 +1,7 @@
 --!strict
--- Dash suite: the four directions and their distances, the dash punch (late = stun, early =
--- ragdoll, whiff, lunge at the end), dashing into obstacles never launching you, and the cooldown.
--- Keys go through Controls (Shift, M1) with the camera aimed like a player's.
+-- Dash suite: the four directions and their distances, dashing into obstacles never launching you,
+-- and the cooldown. (A front dash's M1, the lunge, is in the Attacks suite.) Keys go through
+-- Controls (Shift) with the camera aimed like a player's.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -15,8 +15,8 @@ local FORWARD = Vector3.zAxis
 local RIGHT = Vector3.new(-1, 0, 0) -- right of a character looking +Z
 
 -- Dashes from a standstill at `position` looking along `look`, holding `keys` (world direction).
--- punchAt: seconds into the dash to click M1. Returns (started, flat movement, animations seen).
-local function trial(t: Context, position: Vector3, look: Vector3, keys: Vector3, punchAt: number?): (boolean, Vector3, { [string]: boolean })
+-- Returns (started, flat movement, animations seen).
+local function trial(t: Context, position: Vector3, look: Vector3, keys: Vector3): (boolean, Vector3, { [string]: boolean })
 	t:teleport(position, look)
 	t:aimCamera(look)
 	t:waitDashReady()
@@ -27,13 +27,8 @@ local function trial(t: Context, position: Vector3, look: Vector3, keys: Vector3
 	local started = t.dash:IsBusy()
 	local seen: { [string]: boolean } = {}
 	local animator = t.humanoid:FindFirstChildOfClass("Animator")
-	local punched = false
 	local t0 = os.clock()
 	while os.clock() - t0 < 1.3 do
-		if punchAt and not punched and os.clock() - t0 >= punchAt then
-			t:press("M1")
-			punched = true
-		end
 		if animator then
 			for _, track in animator:GetPlayingAnimationTracks() do
 				seen[if track.Animation then track.Animation.Name else "?"] = true
@@ -70,23 +65,6 @@ local tests: { Harness.Test } = {
 					string.format("%.2f studs (want %.1f), anim %s, %.1f deg off its axis", distance, case.want,
 						if seen[case.anim] then "ok" else "MISSING", off))
 			end
-		end,
-	},
-	{
-		name = "Dash punch: late stuns, early ragdolls, whiffs, lunges at the end",
-		run = function(t)
-			-- The test dummy stands at (80, 3, 40), approached along +X.
-			local _, _, seen = trial(t, Vector3.new(70, 4, 40), Vector3.xAxis, Vector3.zero, 0.14)
-			local late = t.dash:GetLastPunchResult()
-			t:check("late punch stuns", late == "stun" and seen.DashPunch == true,
-				string.format("result %s, anim %s", late, if seen.DashPunch then "ok" else "MISSING"))
-			trial(t, Vector3.new(76, 4, 40), Vector3.xAxis, Vector3.zero, 0)
-			t:check("early punch ragdolls", t.dash:GetLastPunchResult() == "ragdoll", "result " .. t.dash:GetLastPunchResult())
-			local _, missMoved = trial(t, LANE, FORWARD, Vector3.zero, 0.2)
-			t:check("whiff", t.dash:GetLastPunchResult() == "miss", string.format("slid %.1f studs", missMoved.Magnitude))
-			local _, lunge = trial(t, LANE, FORWARD, Vector3.zero, Config.FrontDashTime - 0.08)
-			t:check("a punch at the very end still lunges", lunge.Magnitude > Config.FrontDashDistance + 2,
-				string.format("%.1f studs total", lunge.Magnitude))
 		end,
 	},
 	{
@@ -142,6 +120,6 @@ local tests: { Harness.Test } = {
 
 return {
 	name = "Dash",
-	description = "Directions, distances, dash punch, obstacles, cooldown",
+	description = "Directions, distances, obstacles, cooldown",
 	tests = tests,
 }

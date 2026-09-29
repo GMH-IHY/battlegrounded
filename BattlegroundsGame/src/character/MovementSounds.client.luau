@@ -144,12 +144,6 @@ watch("Dashing", function(value)
 	end
 end)
 
-watch("DashKind", function(value)
-	if value == "Punch" then
-		Sfx.PlayAny(character, { "DashPunchSwing", "DashPunchSwing2" })
-	end
-end)
-
 watch("WallRunning", function(value)
 	if value == true then
 		Sfx.Play(character, "Land", { volume = 0.3, speed = 1.3 }) -- feet hit the wall

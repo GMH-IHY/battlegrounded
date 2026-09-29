@@ -65,6 +65,13 @@ Effects are a few parts whose size, position and transparency change in steps (c
 - Wings: long, thin rectangular plates with a paper texture, folded into an X across the back at rest, in the Ko-guy style. Two plates per side (fore and hind), pale paper colours, 8 parts including the rod antennae (`tools/models/moth_wings.py`). The texture (`assets/textures/moth_wing_paper.png`) needs uploading to Roblox before it shows ([references/koguy-paper-wings.webp](references/koguy-paper-wings.webp)). Antennae: two thin rods.
 - The lantern: a small boxy lantern with a Neon core; its light is a simple sphere of light.
 
+## Weapons
+
+Built from parts by `tools/models/weapons.py` (a weapon is at most 8 parts):
+
+- **Sword:** leather grip, iron pommel and guard, a flat steel blade with a darker fuller stripe, a diamond tip. It sits on a wrist bone (SwordGrip) so animations can turn the blade; at rest it points forward, tipped a little down.
+- **Dagger:** a short version of the same, in a leather sheath on the left hip; drawn into the left hand only for dagger moves.
+
 ## Hands
 
 - Right hand: always the sword.

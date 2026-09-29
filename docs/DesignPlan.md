@@ -56,15 +56,20 @@ Movement is momentum-based and runs on the client (the player owns their charact
 
 **What the movement rework adds (phase 1):**
 
-- Side or back dash → M1: the dash ends on the click, keeping its speed, and the swing starts that frame. A front dash's M1 is the dash punch (the future running lunge). M1 late in a landing roll (from 0.25 s) or during a Moth flight cuts into a swing too.
+- Side or back dash → an attack: the dash ends on the click, keeping its speed, and the attack starts that frame. A front dash's M1 is the sword's running lunge. An attack late in a landing roll (from 0.25 s) or during a Moth flight cuts in too.
 - Transition clips (walk / sprint start, sprint turn, light / running landing) and in-betweens at the start and end of every animation: choppy but smooth. Stopping from a run goes straight to idle (no skid). There's no heavy landing: a long fall never locks you.
 - An extremely subtle stepped lean of the torso into turns and with speed changes (at most 3°; every character, visual only).
 - Small retro effects: sweat balls only while burnt out, a low-poly dust cloud when landing hard and when a dash starts.
-- Until combat exists, M1 is a placeholder 3-hit sword swing with the real timings and no damage.
-
 ## Combat core
 
 Combat runs on a 60 Hz frame model. The server owns every hit, resource and cooldown.
+
+**How it's built (phase 2).** The server keeps a `Fighter` for every player and training dummy: a state machine (Idle, Blocking, Attacking, Stunned, Blockstun, Parried, Launched, Knockdown, Downed, TechRoll), the move it runs, stamina, cooldowns, the M1 chain, the combo it's taking and its build-up. Every frame it steps each move's frames and checks the active hitboxes itself (slightly padded for lag); `HitResolver` decides parry / block / armour / hit. The attacker's client plays the move at once (animation, step, lunge, hanging in the air), asks the server to run it, and pauses for the hit pause when the server says it landed; a refused move stops. The victim's client moves its own body (players own their physics) from the server's reaction message. Fighters pass through each other (collision group "Fighters").
+
+- **Knockdowns are animated, not physics ragdolls:** the body flies on a set path, tumbles in the air (stepped animation), lies on the floor, gets up. It reads better with constant easing and makes timing exact.
+- **Hit pause:** both characters freeze for a few frames (4 on an M1, up to 7 on heavy hits) and the move's clock stops meanwhile, so the frame data stays true.
+- **Soft lock:** an attack started with an opponent within 12 studs and 70° of where you face turns you toward them.
+- **Parry:** each fresh press of F (while you can act) opens a 6-frame window; a window that parries nothing blocks new windows for 20 frames (holding F still blocks), so mashing doesn't parry. A parried attacker is stuck 20 frames.
 
 **M1s interrupt, they don't combo.** Each sword M1 stuns and interrupts, but its stun ends about 2 frames before the next M1 can hit.
 
@@ -79,7 +84,7 @@ Combat runs on a 60 Hz frame model. The server owns every hit, resource and cool
 - **After a blocked third M1** the attacker is at a disadvantage, so it's the defender's turn.
 - **Free combo route:** M1 → 1 → ability → M1. Anything more has to come from cooldowns being ready; nothing costs stamina.
 - **The sword's 1 is the linker.** It never ragdolls and leaves a long stun, so any ability can follow. It is unsafe on block. Its 5 s cooldown (shared by the ground and air versions) is what limits combo length: one 1 per combo.
-- **Ragdoll.** Most other moves ragdoll, which ends combos. Down slams and other hits on grounded players are allowed as often as you like; getting up is always faster than a full 3-hit M1 chain (about 0.5 s after landing, first frames invincible, dash to tech roll).
+- **Ragdoll (knockdown).** Most other moves knock down, which ends combos. Down slams and other hits on grounded players are allowed as often as you like (they don't reset the get-up clock); getting up is always faster than a full 3-hit M1 chain (0.5 s after landing, first 10 frames invincible, dash to tech roll).
 - **Unblockables** are always slower. Warning flashes, ULTRAKILL-style: **yellow** = can't be blocked, can be parried; **blue** = can't be parried, dash to dodge. Normal moves don't flash.
 - **Armour** absorbs a set number of hits (for example, one armour point: a second hit interrupts).
 - **Juggle limit:** one launch per combo. Any later launch becomes a normal knockdown.
@@ -103,7 +108,8 @@ One meter, 100 SP. Posture is merged into it.
 
 - **Overdraw:** a stamina move still comes out with too little SP, then you're in burnout.
 - **Burnout:** nothing that costs stamina. You can still block and parry, but blocked hits deal chip damage to HP. You leave burnout only when the meter is full again; it refills 25% faster meanwhile.
-- **Refill:** about 15 SP/s after a short pause, so burnout lasts 5–6 s (the current code refills 45/s; changes in phase 2).
+- **Refill:** 15 SP/s after 0.9 s without spending (6/s in the air), so burnout lasts 5–6 s.
+- The server owns the meter. Race moves spend it from the client (sent to the server, counted locally until the server catches up). While burnt out, sweat pops off your head and the SP bar blinks orange.
 
 ## Loadout
 
@@ -147,11 +153,11 @@ Players mix slots freely. Eight of each is the long-term target; the first build
 | Lint | selene with the Roblox standard library (`selene.toml`). |
 | Movement | Client-side modules next to `CharacterMotor` (the player owns their physics). |
 | Input | One controller maps keys to action names and sends one validated request per action. |
-| Move data | One ModuleScript per weapon / magic / element / race: frames, damage, hitboxes, flags, variants with the conditions that pick them. |
-| State machine | Server-side per character (idle, attacking, blocking, stunned, ragdoll, burnout) gates every action. |
-| Hits | Server spatial queries with small lag compensation; clients play animations and effects immediately. |
+| Move data | One ModuleScript per weapon / magic / element / race (`ReplicatedStorage > Combat > MoveSets`): frames, damage, hitboxes, flags. `Loadout` picks the variant a key makes (chain position, air, running, Space held). |
+| State machine | Server-side per character (`ServerScriptService > Combat > Fighter`) gates every action. |
+| Hits | Server spatial queries with small lag compensation (`HitResolver`); clients play animations and effects immediately (`CombatClient`, `CombatFx`). |
 | Animation | Generated in Python (`tools/animations`), constant easing, written into the place; previews as contact sheets and a browser viewer. |
-| Testing | Debug tools gated to Studio: frame data overlay, hitbox view, training dummy (stand / block / parry), movement self-test. |
+| Testing | Studio only: F4 test panel (movement and combat suites), F3 frame data overlay, F5 hitbox view, training dummies (stand / block / block after a hit / parry / attack). |
 
 ## Roadmap
 
@@ -161,7 +167,7 @@ Each phase ends with a Studio playtest and a commit.
 | --- | --- |
 | 0. Cleanup & foundation | Remove dead code, merge the place and animation tools, set up linting, write these docs. **Done Sep 29.** |
 | 1. Movement rework | Regenerate every movement animation with more in-between poses at the start and end, transition animations, torso lean, cancels into attacks, new Moth paper wings, sweat and dust effects. **Built Sep 29, waiting on a Studio playtest.** |
-| 2. Combat core + Sword + Dagger | State machine, move runner, hits / block / parry / counter-hit, stamina and burnout, get-up, juggle limit, scaling, status build-up, warning flashes, hit pause and screen shake, training dummy, sword and dagger models and moves. |
+| 2. Combat core + Sword + Dagger | State machine, move runner, hits / block / parry / counter-hit, stamina and burnout, get-up, juggle limit, scaling, status build-up, warning flashes, hit pause and screen shake, training dummy, sword and dagger models and moves. **Built Sep 29, waiting on a Studio playtest.** |
 | 3. Lotus Fungus | Meter and stages, every 2 / 3 / 4 variant, R and G, fungus arm and body growth, infection wrap and burst, the opponent's reactions. |
 | 4. Wind + Moth | Q push / pull and Drafted; lantern rework and flight in your own light. |
 | 5. HUD & balance tools | HUD tied to the loadout, stage meter, status bars over heads, cooldowns; combo damage checker. |
@@ -171,4 +177,6 @@ Each phase ends with a Studio playtest and a commit.
 - [x] Movement self-test: replaced by the F4 test panel (Tests > Suites), which covers the old checks plus the new ones.
 - [x] T: free, does nothing.
 - [ ] Final damage scaling numbers (after playtests).
+- [ ] Dash invincibility: the dash's first 4 frames are meant to be invincible, but the server doesn't know when a player dashes yet (movement is client-side). Until then a dash dodges by distance only.
+- [x] Knockdowns: animated knockdowns instead of physics ragdolls (exact timing, reads better with constant easing).
 - [ ] Which element and magic system belong to each region (lore only; no gameplay effect).

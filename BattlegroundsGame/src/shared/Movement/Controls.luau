@@ -6,14 +6,24 @@
 -- MovementController registers the actions for its character; the keyboard handlers call them,
 -- and the in-Studio tests (StarterPlayerScripts > Tests) call them the same way:
 --   Controls.Get(character).press.Dash()
--- Actions: Jump (Space), Dash (Shift), Race (Left Ctrl), Forward (W), M1 (left click).
--- A press without a release is fine for one-shot actions (Dash, M1).
+-- Actions: Jump (Space), Dash (Shift), Race (Left Ctrl), Forward (W), M1 (left click),
+-- M2 (right click: the secondary weapon), One (1: the weapon ability), Block (F: hold to block,
+-- a fresh press is a parry try). A press without a release is fine for one-shot actions.
 --
 -- The Humanoid's own jump (Humanoid.Jump while Space is held) comes from Roblox's control script,
 -- not from here: tests that hold Jump set Humanoid.Jump themselves.
 
-export type ActionName = "Jump" | "Dash" | "Race" | "Forward" | "M1"
-export type ActionSet = { Jump: () -> (), Dash: () -> (), Race: () -> (), Forward: () -> (), M1: () -> () }
+export type ActionName = "Jump" | "Dash" | "Race" | "Forward" | "M1" | "M2" | "One" | "Block"
+export type ActionSet = {
+	Jump: () -> (),
+	Dash: () -> (),
+	Race: () -> (),
+	Forward: () -> (),
+	M1: () -> (),
+	M2: () -> (),
+	One: () -> (),
+	Block: () -> (),
+}
 export type Actions = { press: ActionSet, release: ActionSet }
 
 local Controls = {}

@@ -7,7 +7,8 @@ and StudioAnimationMirror copies them for playtests. A sequence with the same na
 any other sequence (for example one you made in Studio) is left alone.
 
 Workspace > AnimRig_R6 (the anchored R6 dummy the editor poses) is created if it's missing, and
-its Moth wings / antennae are rebuilt from MothPartsData every time (so they always match the game).
+its Moth wings / antennae and its weapons (the sword on its SwordGrip bone, the sheath and dagger on
+the hip) are rebuilt from MothPartsData / WeaponModelsData every time (so they always match the game).
 --rig rebuilds the whole rig from scratch, which drops anything attached to it by hand.
 
 Every animation module lists (time, pose) keys. A pose maps joint names to either an authored
@@ -26,7 +27,7 @@ import rbxlx  # noqa: E402
 from rbxlx import item, add, add_cf, add_v3, child, fmt  # noqa: E402
 from rig import JOINTS, SIZES, transform, cf, ry  # noqa: E402
 from catalog import ALL  # noqa: E402
-from preview import load_moth_parts  # noqa: E402
+from preview import load_moth_parts, load_weapons  # noqa: E402
 
 PLACE = os.path.join(os.path.dirname(os.path.dirname(HERE)), "BattlegroundsGame.rbxlx")
 RIG_NAME = "AnimRig_R6"
@@ -41,6 +42,7 @@ PART_OF = {"RootJoint": "Torso", "Neck": "Head", "Right Shoulder": "Right Arm", 
 TORSO_CHILDREN = ["Head", "Right Arm", "Left Arm", "Right Leg", "Left Leg",
                   "RightForewing", "LeftForewing", "RightHindwing", "LeftHindwing"]
 HEAD_CHILDREN = ["RightAntenna", "LeftAntenna"]
+ARM_CHILDREN = {"Right Arm": ["SwordGrip"]}
 
 
 # ---------------- rig -------------------------------------------------------------------
@@ -147,6 +149,74 @@ def attach_moth_parts(rig):
         add(wp, "Ref", "Part1", part.get("referent"))
 
 
+def attach_weapons(rig):
+    """Puts the sword (on its SwordGrip bone, so the Animation Editor can pose the wrist), the sheath
+    and the sheathed dagger on the editor rig, replacing old ones."""
+    data = load_weapons()
+    if not data["joints"]:
+        return
+    parts = {rbxlx.name_of(c): c for c in rbxlx.children(rig) if c.get("class") == "Part"}
+    old = child(rig, name="Weapons")
+    if old is not None:
+        rig.remove(old)
+    names = {j["name"] for j in data["joints"]}
+    for p in parts.values():
+        for c in rbxlx.children(p):
+            if c.get("class") == "Motor6D" and rbxlx.name_of(c) in names:
+                p.remove(c)
+    model, _ = item("Model", "Weapons", rig)
+
+    def bone_part(name, frame):
+        bone, bp = item("Part", name, model)
+        add_cf(bp, "CFrame", frame)
+        add_v3(bp, "size", (0.2, 0.2, 0.2))
+        for k in ("Anchored", "CanCollide", "CanQuery", "CanTouch"):
+            add(bp, "bool", k, "false")
+        add(bp, "bool", "Massless", "true")
+        add(bp, "float", "Transparency", 1)
+        return bone
+
+    groups = {}
+    for j in data["joints"]:
+        p0 = parts[j["part0"]]
+        frame = _cf_of(p0) @ j["c0"]
+        bone = bone_part(j["name"], frame)
+        _, mp = item("Motor6D", j["name"], p0)
+        add_cf(mp, "C0", j["c0"])
+        add_cf(mp, "C1", np.eye(4))
+        add(mp, "Ref", "Part0", p0.get("referent"))
+        add(mp, "Ref", "Part1", bone.get("referent"))
+        groups[j["name"]] = (bone, frame)
+    for name, mount in (("Sheath", "Sheath"), ("Dagger", "DaggerHip")):
+        m = data["mounts"][mount]
+        p0 = parts[m["part0"]]
+        frame = _cf_of(p0) @ m["c0"]
+        root = bone_part(name + "Root", frame)
+        _, wp = item("Weld", "Mount", root)
+        add_cf(wp, "C0", m["c0"])
+        add_cf(wp, "C1", np.eye(4))
+        add(wp, "Ref", "Part0", p0.get("referent"))
+        add(wp, "Ref", "Part1", root.get("referent"))
+        groups[name] = (root, frame)
+    for s in data["parts"]:
+        root, frame = groups[s["bone"]]
+        part, pp = item("Part", s["bone"] + "Piece", model)
+        add_cf(pp, "CFrame", frame @ s["rel"])
+        add_v3(pp, "size", s["size"])
+        for k in ("Anchored", "CanCollide", "CanQuery", "CanTouch", "CastShadow"):
+            add(pp, "bool", k, "false")
+        add(pp, "bool", "Massless", "true")
+        add(pp, "Color3uint8", "Color3uint8", rbxlx.color_int(s["color"]))
+        add(pp, "token", "Material", 272)
+        add(pp, "token", "TopSurface", 0)
+        add(pp, "token", "BottomSurface", 0)
+        _, wp = item("Weld", "Weld", part)
+        add_cf(wp, "C0", s["rel"])
+        add_cf(wp, "C1", np.eye(4))
+        add(wp, "Ref", "Part0", root.get("referent"))
+        add(wp, "Ref", "Part1", part.get("referent"))
+
+
 # ---------------- animations ------------------------------------------------------------
 def constant_keys(keys):
     """Anim modules list each pose at the time it should APPEAR and hold until the next one.
@@ -191,13 +261,13 @@ def build_seq(anim):
         hrp = pose_el(kf, "HumanoidRootPart", np.eye(4), 0)
         torso = pose_el(hrp, "Torso", by_part.get("Torso", np.eye(4)), 1 if "Torso" in by_part else 0)
         for part in TORSO_CHILDREN:
-            needed_for_head = part == "Head" and any(c in by_part for c in HEAD_CHILDREN)
-            if part in by_part or needed_for_head:
+            children = HEAD_CHILDREN if part == "Head" else ARM_CHILDREN.get(part, [])
+            needed_for_child = any(c in by_part for c in children)
+            if part in by_part or needed_for_child:
                 el = pose_el(torso, part, by_part.get(part, np.eye(4)), 1 if part in by_part else 0)
-                if part == "Head":
-                    for c in HEAD_CHILDREN:
-                        if c in by_part:
-                            pose_el(el, c, by_part[c], 1)
+                for c in children:
+                    if c in by_part:
+                        pose_el(el, c, by_part[c], 1)
     return ks
 
 
@@ -227,6 +297,7 @@ def main(argv):
         ws.append(rig)
         print("built", RIG_NAME)
     attach_moth_parts(rig)
+    attach_weapons(rig)
     saves = child(ss, name="RBX_ANIMSAVES")
     if saves is None:
         saves, _ = item("Model", "RBX_ANIMSAVES", ss)

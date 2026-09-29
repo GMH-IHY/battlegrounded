@@ -28,7 +28,6 @@ local AnimationConfig = {
 		DashLeft = "",
 		DashRight = "",
 		DashBack = "",
-		DashPunch = "",
 		-- Played by WallHop by which side the wall is on (Right = wall on your right).
 		WallRunRight = "",
 		WallRunLeft = "",
@@ -47,10 +46,34 @@ local AnimationConfig = {
 		LanternCharge = "",
 		LanternThrow = "",
 		LanternSuspend = "",
-		-- Sword M1 chain (the placeholder M1 plays these until the combat system exists).
+		-- Sword (ReplicatedStorage > Combat > MoveSets > Sword): the M1 chain, launcher, lunge, 1, air moves.
 		M1Swing1 = "",
 		M1Swing2 = "",
 		M1Swing3 = "",
+		SwordLauncher = "",
+		SwordLunge = "",
+		SwordOne = "",
+		SwordAirSlash1 = "",
+		SwordAirSlash2 = "",
+		SwordAirSpike = "",
+		SwordAirOne = "",
+		-- Dagger (MoveSets > Dagger).
+		DaggerStab = "",
+		DaggerAirSlash = "",
+		-- Defence.
+		BlockHold = "",
+		BlockImpact = "",
+		Parry = "",
+		Parried = "",
+		-- Hit reactions (CombatReactions).
+		HitStun1 = "",
+		HitStun2 = "",
+		HitAir = "",
+		Knockback = "",
+		Launched = "",
+		Downed = "",
+		GetUp = "",
+		TechRoll = "",
 	} :: { [string]: string },
 
 	-- Where Studio playtests read unpublished animations from.
