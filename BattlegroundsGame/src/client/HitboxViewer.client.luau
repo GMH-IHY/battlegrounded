@@ -2,22 +2,21 @@
 -- HitboxViewer (LocalScript)
 -- Location: StarterPlayer > StarterPlayerScripts > HitboxViewer
 --
--- Studio only. F5 shows the SERVER's attack hitboxes (the boxes that actually decide hits, with
+-- Studio only. Settings menu (gear) > Debug > Hitbox view shows the SERVER's attack hitboxes (the boxes that actually decide hits, with
 -- their lag padding): red while the box touches someone, orange otherwise, each shown for a
 -- few frames. It asks the server to broadcast them (CombatServer, "CombatShowHitboxes").
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 if not RunService:IsStudio() then
 	return
 end
 
+local SettingsMenu = require(script.Parent:WaitForChild("SettingsMenu"))
 local CombatRemotes = require(ReplicatedStorage:WaitForChild("Combat"):WaitForChild("CombatRemotes"))
 
-local TOGGLE_KEY = Enum.KeyCode.F5
 local SHOW_TIME = 0.1
 
 local remotes = CombatRemotes.Get()
@@ -27,15 +26,12 @@ local folder = Instance.new("Folder")
 folder.Name = "HitboxViewer"
 folder.Parent = Workspace
 
-UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
-	if processed or input.KeyCode ~= TOGGLE_KEY then
-		return
-	end
-	shown = not shown
-	remotes.Debug:InvokeServer("ShowHitboxes", shown)
+SettingsMenu.AddToggle("Debug", "Hitbox view (server)", false, function(on: boolean)
+	shown = on
 	if not shown then
 		folder:ClearAllChildren()
 	end
+	remotes.Debug:InvokeServer("ShowHitboxes", shown)
 end)
 
 remotes.Fx.OnClientEvent:Connect(function(info: { [string]: any })

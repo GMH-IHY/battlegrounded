@@ -4,12 +4,11 @@
 --
 -- On-screen speed counter for checking movement against MovementConfig, plus combat frame data
 -- (the move you're in, its frame and phase, what your last move did and its frame advantage).
--- Press F3 to hide/show. Turn it off with MovementConfig.DebugSpeedometer = false.
+-- Settings menu (gear) > Debug > Speedometer hides/shows it. Turn it off with MovementConfig.DebugSpeedometer = false.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 
 local movementFolder = ReplicatedStorage:WaitForChild("Movement")
 movementFolder:WaitForChild("CharacterMotor")
@@ -28,6 +27,7 @@ local LandingRoll = require(ReplicatedStorage.Movement.LandingRoll)
 local AutoParkour = require(ReplicatedStorage.Movement.AutoParkour)
 local Lantern = require(ReplicatedStorage.Movement.Lantern)
 local Stamina = require(ReplicatedStorage.Movement.Stamina)
+local SettingsMenu = require(script.Parent:WaitForChild("SettingsMenu"))
 local Config = require(ReplicatedStorage.Movement.MovementConfig)
 local Perf = require(ReplicatedStorage.Movement.Perf)
 ReplicatedStorage:WaitForChild("Combat"):WaitForChild("CombatClient")
@@ -37,7 +37,6 @@ if not Config.DebugSpeedometer then
 	return
 end
 
-local TOGGLE_KEY = Enum.KeyCode.F3
 local REFRESH_INTERVAL = 1 / 15 -- text updates per second (peaks are still tracked every frame)
 local ON_TARGET_TOLERANCE = 0.5
 
@@ -84,10 +83,8 @@ label.Parent = frame
 
 gui.Parent = player:WaitForChild("PlayerGui")
 
-UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
-	if not gameProcessed and input.KeyCode == TOGGLE_KEY then
-		gui.Enabled = not gui.Enabled
-	end
+SettingsMenu.AddToggle("Debug", "Speedometer + frame data", true, function(on: boolean)
+	gui.Enabled = on
 end)
 
 -- Tracking -------------------------------------------------------------------
@@ -274,7 +271,7 @@ local function onFrame(dt: number)
 		combatText,
 		lanternText,
 		string.format("Rig: %s", rig),
-		colour("F3 to hide   F2 collision boxes", GREY),
+		colour("Settings (gear, top right) > Debug to hide", GREY),
 	}, "\n")
 end
 
@@ -282,7 +279,7 @@ RunService.RenderStepped:Connect(function(dt: number)
 	if Perf.enabled then
 		local t0 = os.clock()
 		onFrame(dt)
-		Perf.add("F3 overlay", os.clock() - t0)
+		Perf.add("Debug overlay", os.clock() - t0)
 	else
 		onFrame(dt)
 	end

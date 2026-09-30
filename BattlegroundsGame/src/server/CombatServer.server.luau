@@ -12,7 +12,7 @@
 -- Clients only ask: "start this move", "F is down", "R let go", "tech roll", "I spent stamina".
 --
 -- Studio only: the Debug remote (test panel helpers) and hitbox broadcasting
--- (ReplicatedStorage attribute "CombatShowHitboxes", toggled by the hitbox viewer, F5).
+-- (ReplicatedStorage attribute "CombatShowHitboxes", toggled by the hitbox viewer in the settings menu).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

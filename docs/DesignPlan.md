@@ -159,7 +159,7 @@ Players mix slots freely. Eight of each is the long-term target; the first build
 | State machine | Server-side per character (`ServerScriptService > Combat > Fighter`) gates every action. |
 | Hits | Server spatial queries with small lag compensation (`HitResolver`); clients play animations and effects immediately (`CombatClient`, `CombatFx`). |
 | Animation | Generated in Python (`tools/animations`), constant easing, written into the place; previews as contact sheets and a browser viewer. |
-| Testing | Studio only: F4 test panel (movement and combat suites), F3 frame data overlay, F5 hitbox view, training dummies (stand / block / block after a hit / parry / attack). |
+| Testing | All in the settings menu (gear, top right) > Debug, no function keys: test panel (movement, combat and Lotus suites), frame data overlay, collision boxes, hitbox view, animation gallery; training dummies (stand / block / block after a hit / parry / attack). |
 
 ## Roadmap
 
@@ -176,7 +176,7 @@ Each phase ends with a Studio playtest and a commit.
 
 ## Open questions
 
-- [x] Movement self-test: replaced by the F4 test panel (Tests > Suites), which covers the old checks plus the new ones.
+- [x] Movement self-test: replaced by the test panel (settings menu > Debug) (Tests > Suites), which covers the old checks plus the new ones.
 - [x] T: free, does nothing.
 - [ ] Final damage scaling numbers (after playtests).
 - [ ] Dash invincibility: the dash's first 4 frames are meant to be invincible, but the server doesn't know when a player dashes yet (movement is client-side). Until then a dash dodges by distance only.

@@ -347,7 +347,7 @@ local MovementConfig = {
 	TagFlyMaxTime = 1.2,
 
 	-- DEBUG -----------------------------------------------------------------
-	-- On-screen speed counter for testing. Press F3 to hide or show it.
+	-- On-screen speed counter for testing. Settings menu (gear) > Debug hides or shows it.
 	-- Set to false before release.
 	DebugSpeedometer = true,
 }

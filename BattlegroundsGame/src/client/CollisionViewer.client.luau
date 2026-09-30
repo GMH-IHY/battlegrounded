@@ -2,8 +2,9 @@
 -- CollisionViewer (LocalScript)
 -- Location: StarterPlayer > StarterPlayerScripts > CollisionViewer
 --
--- Debug view of every character's collision boxes (yours, other players', dummies). Press F2 to
--- toggle, or from the command bar: game.Players.LocalPlayer.PlayerGui.CollisionViewer.Toggle:Fire()
+-- Debug view of every character's collision boxes (yours, other players', dummies). Settings menu (gear)
+-- > Debug > Collision boxes, or from the command bar:
+-- game.Players.LocalPlayer.PlayerGui.CollisionViewer.Toggle:Fire()
 --   green   body parts that are colliding right now (Head, Torso, ...)
 --   orange  extra collision boxes movement adds (LowerBodyCollider for the legs, SlideCollider
 --           while sliding)
@@ -15,16 +16,15 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
+local SettingsMenu = require(script.Parent:WaitForChild("SettingsMenu"))
 local Config = require(ReplicatedStorage:WaitForChild("Movement"):WaitForChild("MovementConfig"))
 
 if not Config.DebugSpeedometer then
 	return
 end
 
-local TOGGLE_KEY = Enum.KeyCode.F2
 local SLIDE_GROUP = "ParkourSlideBody"
 local EXTRA_COLLIDERS: { [string]: boolean } = {
 	LowerBodyCollider = true,
@@ -51,7 +51,7 @@ label.BorderSizePixel = 0
 label.Font = Enum.Font.Code
 label.TextSize = 14
 label.TextColor3 = Color3.new(1, 1, 1)
-label.Text = "Collision boxes (F2): green body, orange extra colliders, yellow root"
+label.Text = "Collision boxes: green body, orange extra colliders, yellow root"
 label.Parent = gui
 gui.Parent = player:WaitForChild("PlayerGui")
 
@@ -155,16 +155,13 @@ local function setShown(on: boolean)
 	end
 end
 
-UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
-	if not gameProcessed and input.KeyCode == TOGGLE_KEY then
-		setShown(not shown)
-	end
-end)
+local setSwitch = SettingsMenu.AddToggle("Debug", "Collision boxes", false, setShown)
 
 local toggleEvent = Instance.new("BindableEvent")
 toggleEvent.Name = "Toggle"
 toggleEvent.Event:Connect(function()
 	setShown(not shown)
+	setSwitch(shown)
 end)
 toggleEvent.Parent = gui
 

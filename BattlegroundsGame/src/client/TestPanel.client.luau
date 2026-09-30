@@ -2,24 +2,23 @@
 -- TestPanel (LocalScript)
 -- Location: StarterPlayer > StarterPlayerScripts > TestPanel
 --
--- Studio only. F4 during Play opens the test panel: "Run all" runs every suite except the slow
+-- Studio only. Settings menu (gear) > Debug > Test panel opens it during Play: "Run all" runs every suite except the slow
 -- ones, or pick a single suite. The tests take over your character (don't touch the keyboard);
 -- results appear as each test finishes, and are printed to Output too. "Stop" ends the run after
 -- the current test. The suites live in StarterPlayerScripts > Tests > Suites (see Tests > Harness).
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 
 if not RunService:IsStudio() then
 	return
 end
 
+local SettingsMenu = require(script.Parent:WaitForChild("SettingsMenu"))
 local testsFolder = script.Parent:WaitForChild("Tests")
 local Harness = require(testsFolder:WaitForChild("Harness"))
 local suitesFolder = testsFolder:WaitForChild("Suites")
 
-local TOGGLE_KEY = Enum.KeyCode.F4
 -- In the order they run. Slow suites are left out of "Run all".
 local ORDER = { "Animation", "Basics", "Dash", "Attacks", "Combat", "Lotus", "Landing", "WallHop", "Parkour", "Flow", "Truss", "Moth", "Performance", "ParkourSweep" }
 local SLOW: { [string]: boolean } = { ParkourSweep = true }
@@ -206,12 +205,13 @@ end
 button("Stop", function()
 	stopRequested = true
 end)
-button("Close (F4)", function()
-	gui.Enabled = false
-end)
-
-UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
-	if not gameProcessed and input.KeyCode == TOGGLE_KEY then
-		gui.Enabled = not gui.Enabled
+local setSwitch = SettingsMenu.AddToggle("Debug", "Test panel", false, function(on: boolean)
+	gui.Enabled = on
+	if on then
+		SettingsMenu.Close()
 	end
+end)
+button("Close", function()
+	gui.Enabled = false
+	setSwitch(false)
 end)

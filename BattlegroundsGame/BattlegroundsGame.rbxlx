@@ -4975,23 +4975,23 @@ gcLgc4RKxr21zq2UlJSM]]></BinaryString>
 -- AnimationGallery (LocalScript)
 -- Location: StarterPlayer > StarterPlayerScripts > AnimationGallery
 --
--- Studio-only pose viewer. Press P during Play: copies of your character appear in a row,
--- each frozen on one pose of an animation, so every pose can be checked at once on the real
--- avatar. P again steps to the next camera angle, then the next animation; after the last
--- one the gallery closes. Reads the KeyframeSequences that StudioAnimationMirror copies into
+-- Studio-only pose viewer. Settings menu (gear) > Debug > Animation gallery during Play: copies of
+-- your character appear in a row, each frozen on one pose of an animation, so every pose can be
+-- checked at once on the real avatar. The Next button steps to the next camera angle, then the next
+-- animation; after the last one (or Close) the gallery closes. Reads the KeyframeSequences that StudioAnimationMirror copies into
 -- ReplicatedStorage, so it always shows the latest saved edits.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 if not RunService:IsStudio() then
 	return
 end
 
-local KEY = Enum.KeyCode.P -- F7 is taken by Studio itself
+local SettingsMenu = require(script.Parent:WaitForChild("SettingsMenu"))
+
 local ORDER = {
 	"DashForward",
 	"DashRight",
@@ -5041,6 +5041,23 @@ label.TextSize = 20
 label.TextColor3 = Color3.new(1, 1, 1)
 label.Text = ""
 label.Parent = gui
+
+local function barButton(text: string, x: number): TextButton
+	local b = Instance.new("TextButton")
+	b.AnchorPoint = Vector2.new(0.5, 0)
+	b.Position = UDim2.new(0.5, x, 0, 50)
+	b.Size = UDim2.fromOffset(110, 30)
+	b.BackgroundColor3 = Color3.new(0, 0, 0)
+	b.BackgroundTransparency = 0.3
+	b.Font = Enum.Font.ArialBold
+	b.TextSize = 18
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Text = text
+	b.Parent = gui
+	return b
+end
+local nextButton = barButton("Next", -60)
+local closeButton = barButton("Close", 60)
 gui.Parent = player:WaitForChild("PlayerGui")
 
 local folder: Folder? = nil
@@ -5184,7 +5201,7 @@ local function applyView()
 		local eye = rowCenter + view.offset * scale
 		camera.CFrame = CFrame.lookAt(eye, rowCenter + Vector3.new(0, -0.5, 0))
 	end
-	label.Text = string.format("%s  -  %d poses  -  %s view   (P: next)", ORDER[sequenceIndex], poseCount, view.name)
+	label.Text = string.format("%s  -  %d poses  -  %s view", ORDER[sequenceIndex], poseCount, view.name)
 end
 
 local function stop()
@@ -5218,8 +5235,11 @@ local function advance()
 	stop()
 end
 
-UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
-	if not gameProcessed and input.KeyCode == KEY then
+nextButton.Activated:Connect(advance)
+closeButton.Activated:Connect(stop)
+SettingsMenu.AddButton("Debug", "Animation gallery", function()
+	SettingsMenu.Close()
+	if sequenceIndex == 0 then
 		advance()
 	end
 end)
@@ -5233,12 +5253,25 @@ nextEvent.Parent = gui
 			</Item>
 			<Item class="LocalScript" referent="RBX5765D918DF2C4818AEC4C6B088172347">
 				<Properties>
-					<ProtectedString name="Source"><![CDATA[--!strict
+					<bool name="Disabled">false</bool>
+					<Content name="LinkedSource"><null></null></Content>
+					<token name="RunContext">0</token>
+					<string name="ScriptGuid">{C9201578-E8F9-4826-B4BB-631BF0D3C4DE}</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<UniqueId name="HistoryId">00000000000000000000000000000000</UniqueId>
+					<string name="Name">CollisionViewer</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+					<UniqueId name="UniqueId">02ef6e543fe1adde0acd19b0000003de</UniqueId>
+				<ProtectedString name="Source"><![CDATA[--!strict
 -- CollisionViewer (LocalScript)
 -- Location: StarterPlayer > StarterPlayerScripts > CollisionViewer
 --
--- Debug view of every character's collision boxes (yours, other players', dummies). Press F2 to
--- toggle, or from the command bar: game.Players.LocalPlayer.PlayerGui.CollisionViewer.Toggle:Fire()
+-- Debug view of every character's collision boxes (yours, other players', dummies). Settings menu (gear)
+-- > Debug > Collision boxes, or from the command bar:
+-- game.Players.LocalPlayer.PlayerGui.CollisionViewer.Toggle:Fire()
 --   green   body parts that are colliding right now (Head, Torso, ...)
 --   orange  extra collision boxes movement adds (LowerBodyCollider for the legs, SlideCollider
 --           while sliding)
@@ -5250,16 +5283,15 @@ nextEvent.Parent = gui
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
+local SettingsMenu = require(script.Parent:WaitForChild("SettingsMenu"))
 local Config = require(ReplicatedStorage:WaitForChild("Movement"):WaitForChild("MovementConfig"))
 
 if not Config.DebugSpeedometer then
 	return
 end
 
-local TOGGLE_KEY = Enum.KeyCode.F2
 local SLIDE_GROUP = "ParkourSlideBody"
 local EXTRA_COLLIDERS: { [string]: boolean } = {
 	LowerBodyCollider = true,
@@ -5286,7 +5318,7 @@ label.BorderSizePixel = 0
 label.Font = Enum.Font.Code
 label.TextSize = 14
 label.TextColor3 = Color3.new(1, 1, 1)
-label.Text = "Collision boxes (F2): green body, orange extra colliders, yellow root"
+label.Text = "Collision boxes: green body, orange extra colliders, yellow root"
 label.Parent = gui
 gui.Parent = player:WaitForChild("PlayerGui")
 
@@ -5390,16 +5422,13 @@ local function setShown(on: boolean)
 	end
 end
 
-UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
-	if not gameProcessed and input.KeyCode == TOGGLE_KEY then
-		setShown(not shown)
-	end
-end)
+local setSwitch = SettingsMenu.AddToggle("Debug", "Collision boxes", false, setShown)
 
 local toggleEvent = Instance.new("BindableEvent")
 toggleEvent.Name = "Toggle"
 toggleEvent.Event:Connect(function()
 	setShown(not shown)
+	setSwitch(shown)
 end)
 toggleEvent.Parent = gui
 
@@ -5414,20 +5443,7 @@ RunService.Heartbeat:Connect(function(dt: number)
 	end
 	update()
 end)
-]]></ProtectedString>
-					<bool name="Disabled">false</bool>
-					<Content name="LinkedSource"><null></null></Content>
-					<token name="RunContext">0</token>
-					<string name="ScriptGuid">{C9201578-E8F9-4826-B4BB-631BF0D3C4DE}</string>
-					<BinaryString name="AttributesSerialize"></BinaryString>
-					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
-					<bool name="DefinesCapabilities">false</bool>
-					<UniqueId name="HistoryId">00000000000000000000000000000000</UniqueId>
-					<string name="Name">CollisionViewer</string>
-					<int64 name="SourceAssetId">-1</int64>
-					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
-					<UniqueId name="UniqueId">02ef6e543fe1adde0acd19b0000003de</UniqueId>
-				</Properties>
+]]></ProtectedString></Properties>
 			</Item>
 			<Item class="LocalScript" referent="RBX31EF912C20524FE38E37D1E1B0BACB5F">
 				<Properties>
@@ -5449,12 +5465,11 @@ end)
 --
 -- On-screen speed counter for checking movement against MovementConfig, plus combat frame data
 -- (the move you're in, its frame and phase, what your last move did and its frame advantage).
--- Press F3 to hide/show. Turn it off with MovementConfig.DebugSpeedometer = false.
+-- Settings menu (gear) > Debug > Speedometer hides/shows it. Turn it off with MovementConfig.DebugSpeedometer = false.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 
 local movementFolder = ReplicatedStorage:WaitForChild("Movement")
 movementFolder:WaitForChild("CharacterMotor")
@@ -5473,6 +5488,7 @@ local LandingRoll = require(ReplicatedStorage.Movement.LandingRoll)
 local AutoParkour = require(ReplicatedStorage.Movement.AutoParkour)
 local Lantern = require(ReplicatedStorage.Movement.Lantern)
 local Stamina = require(ReplicatedStorage.Movement.Stamina)
+local SettingsMenu = require(script.Parent:WaitForChild("SettingsMenu"))
 local Config = require(ReplicatedStorage.Movement.MovementConfig)
 local Perf = require(ReplicatedStorage.Movement.Perf)
 ReplicatedStorage:WaitForChild("Combat"):WaitForChild("CombatClient")
@@ -5482,7 +5498,6 @@ if not Config.DebugSpeedometer then
 	return
 end
 
-local TOGGLE_KEY = Enum.KeyCode.F3
 local REFRESH_INTERVAL = 1 / 15 -- text updates per second (peaks are still tracked every frame)
 local ON_TARGET_TOLERANCE = 0.5
 
@@ -5529,10 +5544,8 @@ label.Parent = frame
 
 gui.Parent = player:WaitForChild("PlayerGui")
 
-UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
-	if not gameProcessed and input.KeyCode == TOGGLE_KEY then
-		gui.Enabled = not gui.Enabled
-	end
+SettingsMenu.AddToggle("Debug", "Speedometer + frame data", true, function(on: boolean)
+	gui.Enabled = on
 end)
 
 -- Tracking -------------------------------------------------------------------
@@ -5719,7 +5732,7 @@ local function onFrame(dt: number)
 		combatText,
 		lanternText,
 		string.format("Rig: %s", rig),
-		colour("F3 to hide   F2 collision boxes", GREY),
+		colour("Settings (gear, top right) > Debug to hide", GREY),
 	}, "\n")
 end
 
@@ -5727,7 +5740,7 @@ RunService.RenderStepped:Connect(function(dt: number)
 	if Perf.enabled then
 		local t0 = os.clock()
 		onFrame(dt)
-		Perf.add("F3 overlay", os.clock() - t0)
+		Perf.add("Debug overlay", os.clock() - t0)
 	else
 		onFrame(dt)
 	end
@@ -7506,24 +7519,23 @@ Players.PlayerAdded:Connect(watchPlayer)
 -- TestPanel (LocalScript)
 -- Location: StarterPlayer > StarterPlayerScripts > TestPanel
 --
--- Studio only. F4 during Play opens the test panel: "Run all" runs every suite except the slow
+-- Studio only. Settings menu (gear) > Debug > Test panel opens it during Play: "Run all" runs every suite except the slow
 -- ones, or pick a single suite. The tests take over your character (don't touch the keyboard);
 -- results appear as each test finishes, and are printed to Output too. "Stop" ends the run after
 -- the current test. The suites live in StarterPlayerScripts > Tests > Suites (see Tests > Harness).
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 
 if not RunService:IsStudio() then
 	return
 end
 
+local SettingsMenu = require(script.Parent:WaitForChild("SettingsMenu"))
 local testsFolder = script.Parent:WaitForChild("Tests")
 local Harness = require(testsFolder:WaitForChild("Harness"))
 local suitesFolder = testsFolder:WaitForChild("Suites")
 
-local TOGGLE_KEY = Enum.KeyCode.F4
 -- In the order they run. Slow suites are left out of "Run all".
 local ORDER = { "Animation", "Basics", "Dash", "Attacks", "Combat", "Lotus", "Landing", "WallHop", "Parkour", "Flow", "Truss", "Moth", "Performance", "ParkourSweep" }
 local SLOW: { [string]: boolean } = { ParkourSweep = true }
@@ -7710,14 +7722,15 @@ end
 button("Stop", function()
 	stopRequested = true
 end)
-button("Close (F4)", function()
-	gui.Enabled = false
-end)
-
-UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
-	if not gameProcessed and input.KeyCode == TOGGLE_KEY then
-		gui.Enabled = not gui.Enabled
+local setSwitch = SettingsMenu.AddToggle("Debug", "Test panel", false, function(on: boolean)
+	gui.Enabled = on
+	if on then
+		SettingsMenu.Close()
 	end
+end)
+button("Close", function()
+	gui.Enabled = false
+	setSwitch(false)
 end)
 ]]></ProtectedString></Properties></Item><Item class="Folder" referent="RBX1F357DBA8924446DA6E808C4D5E02385"><Properties><string name="Name">Tests</string></Properties><Item class="ModuleScript" referent="RBX3E23A34874E544FCA1FB2C1FD0355775"><Properties><string name="Name">Harness</string><ProtectedString name="Source"><![CDATA[--!strict
 -- Harness (ModuleScript)
@@ -11590,22 +11603,21 @@ end)
 -- HitboxViewer (LocalScript)
 -- Location: StarterPlayer > StarterPlayerScripts > HitboxViewer
 --
--- Studio only. F5 shows the SERVER's attack hitboxes (the boxes that actually decide hits, with
+-- Studio only. Settings menu (gear) > Debug > Hitbox view shows the SERVER's attack hitboxes (the boxes that actually decide hits, with
 -- their lag padding): red while the box touches someone, orange otherwise, each shown for a
 -- few frames. It asks the server to broadcast them (CombatServer, "CombatShowHitboxes").
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 if not RunService:IsStudio() then
 	return
 end
 
+local SettingsMenu = require(script.Parent:WaitForChild("SettingsMenu"))
 local CombatRemotes = require(ReplicatedStorage:WaitForChild("Combat"):WaitForChild("CombatRemotes"))
 
-local TOGGLE_KEY = Enum.KeyCode.F5
 local SHOW_TIME = 0.1
 
 local remotes = CombatRemotes.Get()
@@ -11615,15 +11627,12 @@ local folder = Instance.new("Folder")
 folder.Name = "HitboxViewer"
 folder.Parent = Workspace
 
-UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
-	if processed or input.KeyCode ~= TOGGLE_KEY then
-		return
-	end
-	shown = not shown
-	remotes.Debug:InvokeServer("ShowHitboxes", shown)
+SettingsMenu.AddToggle("Debug", "Hitbox view (server)", false, function(on: boolean)
+	shown = on
 	if not shown then
 		folder:ClearAllChildren()
 	end
+	remotes.Debug:InvokeServer("ShowHitboxes", shown)
 end)
 
 remotes.Fx.OnClientEvent:Connect(function(info: { [string]: any })
@@ -12217,6 +12226,208 @@ task.spawn(function()
 		end
 	end)
 end)
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX8E94DAC773794B719A2E3F763DC92A0B"><Properties><string name="Name">SettingsMenu</string><ProtectedString name="Source"><![CDATA[--!strict
+-- SettingsMenu (ModuleScript)
+-- Location: StarterPlayer > StarterPlayerScripts > SettingsMenu
+--
+-- The settings menu: a gear button in the top-right corner opens a panel of switches and buttons,
+-- grouped in sections. Nothing uses function keys (Studio and the Roblox player both keep most of
+-- them for themselves), so every debug tool lives here:
+--   local SettingsMenu = require(script.Parent:WaitForChild("SettingsMenu"))
+--   local setShown = SettingsMenu.AddToggle("Debug", "Hitbox view", false, function(on) ... end)
+--   setShown(false) -- when the tool turns itself off (its own Close button), so the switch agrees
+--   SettingsMenu.AddButton("Debug", "Animation gallery", function() ... end)
+-- The UI is built on the first require; items show in the order they're added, sections in SECTIONS
+-- order (unknown sections go last).
+
+local Players = game:GetService("Players")
+
+local SECTIONS = { "Game", "Debug" }
+
+local BG = Color3.fromRGB(16, 16, 18)
+local ROW = Color3.fromRGB(30, 30, 34)
+local BORDER = Color3.fromRGB(70, 70, 76)
+local TEXT = Color3.fromRGB(235, 235, 235)
+local MUTED = Color3.fromRGB(150, 150, 156)
+local ON = Color3.fromRGB(46, 160, 38)
+local OFF = Color3.fromRGB(60, 60, 66)
+local FONT = Font.new("rbxasset://fonts/families/Arimo.json", Enum.FontWeight.Bold)
+local ROW_H = 30
+local WIDTH = 260
+
+local SettingsMenu = {}
+
+local player = Players.LocalPlayer
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "SettingsMenu"
+gui.ResetOnSpawn = false
+gui.DisplayOrder = 250
+
+local function stroke(parent: GuiObject)
+	local s = Instance.new("UIStroke")
+	s.Color = BORDER
+	s.Thickness = 1
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = parent
+end
+
+local gear = Instance.new("TextButton")
+gear.Name = "Gear"
+gear.AnchorPoint = Vector2.new(1, 0)
+gear.Position = UDim2.new(1, -10, 0, 6)
+gear.Size = UDim2.fromOffset(34, 34)
+gear.BackgroundColor3 = BG
+gear.BackgroundTransparency = 0.2
+gear.BorderSizePixel = 0
+gear.AutoButtonColor = true
+gear.FontFace = FONT
+gear.TextSize = 22
+gear.TextColor3 = TEXT
+gear.Text = "⚙"
+gear.Parent = gui
+stroke(gear)
+
+local panel = Instance.new("ScrollingFrame")
+panel.Name = "Panel"
+panel.AnchorPoint = Vector2.new(1, 0)
+panel.Position = UDim2.new(1, -10, 0, 46)
+panel.Size = UDim2.new(0, WIDTH, 0.7, 0)
+panel.BackgroundColor3 = BG
+panel.BackgroundTransparency = 0.1
+panel.BorderSizePixel = 0
+panel.ScrollBarThickness = 4
+panel.AutomaticCanvasSize = Enum.AutomaticSize.Y
+panel.CanvasSize = UDim2.new()
+panel.Visible = false
+panel.Parent = gui
+stroke(panel)
+
+local list = Instance.new("UIListLayout")
+list.SortOrder = Enum.SortOrder.LayoutOrder
+list.Padding = UDim.new(0, 4)
+list.Parent = panel
+local padding = Instance.new("UIPadding")
+padding.PaddingLeft = UDim.new(0, 8)
+padding.PaddingRight = UDim.new(0, 10)
+padding.PaddingTop = UDim.new(0, 8)
+padding.PaddingBottom = UDim.new(0, 8)
+padding.Parent = panel
+
+gear.Activated:Connect(function()
+	panel.Visible = not panel.Visible
+end)
+
+-- Sections -----------------------------------------------------------------------------------------
+
+local sectionOrder: { [string]: number } = {}
+local sectionCount: { [string]: number } = {}
+
+local function sectionIndex(section: string): number
+	local known = table.find(SECTIONS, section)
+	if known then
+		return known
+	end
+	if not sectionOrder[section] then
+		local n = #SECTIONS
+		for _ in sectionOrder do
+			n += 1
+		end
+		sectionOrder[section] = n + 1
+	end
+	return sectionOrder[section]
+end
+
+-- LayoutOrder for the next item of a section (its header comes first).
+local function nextOrder(section: string): number
+	local base = sectionIndex(section) * 1000
+	if not sectionCount[section] then
+		sectionCount[section] = 0
+		local header = Instance.new("TextLabel")
+		header.Name = section
+		header.LayoutOrder = base
+		header.Size = UDim2.new(1, 0, 0, 22)
+		header.BackgroundTransparency = 1
+		header.FontFace = FONT
+		header.TextSize = 13
+		header.TextColor3 = MUTED
+		header.TextXAlignment = Enum.TextXAlignment.Left
+		header.Text = string.upper(section)
+		header.Parent = panel
+	end
+	sectionCount[section] += 1
+	return base + sectionCount[section]
+end
+
+local function row(section: string, label: string): TextButton
+	local button = Instance.new("TextButton")
+	button.Name = label
+	button.LayoutOrder = nextOrder(section)
+	button.Size = UDim2.new(1, 0, 0, ROW_H)
+	button.BackgroundColor3 = ROW
+	button.BorderSizePixel = 0
+	button.AutoButtonColor = true
+	button.FontFace = FONT
+	button.TextSize = 14
+	button.TextColor3 = TEXT
+	button.TextXAlignment = Enum.TextXAlignment.Left
+	button.Text = "  " .. label
+	button.Parent = panel
+	return button
+end
+
+-- Items --------------------------------------------------------------------------------------------
+
+-- A switch. onChange runs on every change (not for the initial value). Returns a setter that moves
+-- the switch without calling onChange, for when the tool turns itself on or off.
+function SettingsMenu.AddToggle(section: string, label: string, initial: boolean, onChange: (boolean) -> ()): (boolean) -> ()
+	local button = row(section, label)
+	local switch = Instance.new("Frame")
+	switch.AnchorPoint = Vector2.new(1, 0.5)
+	switch.Position = UDim2.new(1, -6, 0.5, 0)
+	switch.Size = UDim2.fromOffset(34, 16)
+	switch.BorderSizePixel = 0
+	switch.Parent = button
+	local knob = Instance.new("Frame")
+	knob.AnchorPoint = Vector2.new(0, 0.5)
+	knob.Size = UDim2.fromOffset(14, 14)
+	knob.BackgroundColor3 = TEXT
+	knob.BorderSizePixel = 0
+	knob.Parent = switch
+
+	local value = initial
+	local function show()
+		switch.BackgroundColor3 = if value then ON else OFF
+		knob.Position = if value then UDim2.new(1, -15, 0.5, 0) else UDim2.new(0, 1, 0.5, 0)
+	end
+	show()
+	button.Activated:Connect(function()
+		value = not value
+		show()
+		onChange(value)
+	end)
+	return function(on: boolean)
+		value = on
+		show()
+	end
+end
+
+-- A plain button (runs onPress each click). Returns the button so the caller can relabel it.
+function SettingsMenu.AddButton(section: string, label: string, onPress: () -> ()): TextButton
+	local button = row(section, label)
+	button.TextXAlignment = Enum.TextXAlignment.Center
+	button.Text = label
+	button.Activated:Connect(onPress)
+	return button
+end
+
+function SettingsMenu.Close()
+	panel.Visible = false
+end
+
+gui.Parent = player:WaitForChild("PlayerGui")
+
+return SettingsMenu
 ]]></ProtectedString></Properties></Item></Item>
 		<Item class="StarterCharacterScripts" referent="RBXA083EB4AC2624DB18C67C3E20BF95A9C">
 			<Properties>
@@ -19739,7 +19950,7 @@ local MovementConfig = {
 	TagFlyMaxTime = 1.2,
 
 	-- DEBUG -----------------------------------------------------------------
-	-- On-screen speed counter for testing. Press F3 to hide or show it.
+	-- On-screen speed counter for testing. Settings menu (gear) > Debug hides or shows it.
 	-- Set to false before release.
 	DebugSpeedometer = true,
 }
@@ -27335,7 +27546,7 @@ return Projectiles
 -- Clients only ask: "start this move", "F is down", "R let go", "tech roll", "I spent stamina".
 --
 -- Studio only: the Debug remote (test panel helpers) and hitbox broadcasting
--- (ReplicatedStorage attribute "CombatShowHitboxes", toggled by the hitbox viewer, F5).
+-- (ReplicatedStorage attribute "CombatShowHitboxes", toggled by the hitbox viewer in the settings menu).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
