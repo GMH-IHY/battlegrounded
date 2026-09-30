@@ -962,7 +962,7 @@ function AutoParkour._setSlideBody(self: AutoParkour, on: boolean)
 	if on then
 		table.clear(self.savedParts)
 		for _, descendant in self.character:GetDescendants() do
-			if descendant:IsA("BasePart") and descendant ~= self.slideCollider then
+			if descendant:IsA("BasePart") and not rawequal(descendant, self.slideCollider) then
 				table.insert(self.savedParts, { part = descendant, canCollide = descendant.CanCollide, group = descendant.CollisionGroup })
 				if useGroup then
 					descendant.CollisionGroup = SLIDE_GROUP
@@ -1294,7 +1294,7 @@ function AutoParkour.Destroy(self: AutoParkour)
 	self.align:Destroy()
 	self.attachment:Destroy()
 	self.slideCollider:Destroy()
-	if active[self.character] == self then
+	if rawequal(active[self.character], self) then
 		active[self.character] = nil
 	end
 end

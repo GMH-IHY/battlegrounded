@@ -5707,7 +5707,8 @@ local function onFrame(dt: number)
 		lanternText = "Race: " .. tostring(character:GetAttribute("Race") or "-")
 	end
 
-	local rig = if humanoid.RigType == Enum.HumanoidRigType.R6 then colour("R6", GREEN) else colour("R15", RED)
+	-- The game is R6 only: flag anything else loudly.
+	local rig = if humanoid.RigType == Enum.HumanoidRigType.R6 then colour("R6", GREEN) else colour("NOT R6", RED)
 
 	label.Text = table.concat({
 		string.format("Speed: %s %s", speedText, targetText),
@@ -10781,6 +10782,40 @@ local tests: { Harness.Test } = {
 		end,
 	},
 	{
+		name = "Input buffer: an early 1 still cancels; a key late in a move comes out after it",
+		run = function(t)
+			local dummy = t:dummy("DummyStand")
+			t:faceDummy(dummy, 2.6)
+			t:debug("ClearCooldowns")
+			t.combat:ResetForTest()
+			-- 1 pressed during the stab's startup, long before the server confirms the hit.
+			t.combat.lastResult = ""
+			t:press("M2")
+			t:press("One")
+			t:waitFor(function()
+				return t.combat:GetMoveId() == "Sword.One"
+			end, 1)
+			t:check("the early 1 comes out as the cancel", t.combat:GetMoveId() == "Sword.One", tostring(t.combat:GetMoveId()))
+			waitIdle(t)
+			t:wait(0.4)
+			-- A dagger press in an M1's recovery (a whiff, so no cancel): it comes out right after.
+			t:teleport(dummy:GetPivot().Position + Vector3.new(-30, 1, 0), Vector3.new(-1, 0, 0))
+			t:debug("ClearCooldowns")
+			t.combat:ResetForTest()
+			t:press("M1")
+			t:waitFor(function()
+				return t.combat:GetPhase() == "Recovery"
+			end, 1)
+			t:wait(4 / 60) -- well inside the buffer window before the M1 ends
+			t:press("M2")
+			local dagger = t:waitFor(function()
+				return t.combat:GetMoveId() == "Dagger.Stab"
+			end, 0.6)
+			t:check("pressed during recovery, starts when the M1 ends", dagger, tostring(t.combat:GetMoveId()))
+			waitIdle(t)
+		end,
+	},
+	{
 		name = "Damage scaling",
 		run = function(t)
 			local scaling = t:debug("Scaling")
@@ -11927,10 +11962,15 @@ end)
 -- HitboxViewer (LocalScript)
 -- Location: StarterPlayer > StarterPlayerScripts > HitboxViewer
 --
--- Studio only. Settings menu (gear) > Debug > Hitbox view shows the SERVER's attack hitboxes (the boxes that actually decide hits, with
--- their lag padding): red while the box touches someone, orange otherwise, each shown for a
--- few frames. It asks the server to broadcast them (CombatServer, "CombatShowHitboxes").
+-- Studio only. Settings menu (gear) > Debug > Hitbox view shows attack hitboxes:
+--   blue    YOUR move's hitbox on its active frames, drawn at once from the move data (what your
+--           client expects; no waiting for the server)
+--   orange  the SERVER's hitbox (the one that decides hits, with its lag padding) and projectiles
+--   red     a server hitbox that touched someone
+-- Each server box stays up for SHOW_TIME so even a 2-frame hit is easy to see. The server only
+-- sends its boxes while the view is on (CombatServer, "CombatShowHitboxes").
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -11939,11 +11979,17 @@ if not RunService:IsStudio() then
 	return
 end
 
+local Combat = ReplicatedStorage:WaitForChild("Combat")
+local CombatRemotes = require(Combat:WaitForChild("CombatRemotes"))
+local Moves = require(Combat:WaitForChild("Moves"))
 local SettingsMenu = require(script.Parent:WaitForChild("SettingsMenu"))
-local CombatRemotes = require(ReplicatedStorage:WaitForChild("Combat"):WaitForChild("CombatRemotes"))
 
-local SHOW_TIME = 0.1
+local SHOW_TIME = 0.3
+local SERVER_COLOR = Color3.fromRGB(255, 150, 40)
+local HIT_COLOR = Color3.fromRGB(255, 40, 40)
+local LOCAL_COLOR = Color3.fromRGB(60, 150, 255)
 
+local player = Players.LocalPlayer
 local remotes = CombatRemotes.Get()
 local shown = false
 
@@ -11951,10 +11997,52 @@ local folder = Instance.new("Folder")
 folder.Name = "HitboxViewer"
 folder.Parent = Workspace
 
-SettingsMenu.AddToggle("Debug", "Hitbox view (server)", false, function(on: boolean)
+local function box(color: Color3, transparency: number): Part
+	local part = Instance.new("Part")
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.Material = Enum.Material.SmoothPlastic
+	part.Color = color
+	part.Transparency = transparency
+	local outline = Instance.new("SelectionBox")
+	outline.Adornee = part
+	outline.Color3 = color
+	outline.LineThickness = 0.04
+	outline.SurfaceTransparency = 1
+	outline.Parent = part
+	return part
+end
+
+-- Your own move's hitbox, following you on its active frames.
+local localBox = box(LOCAL_COLOR, 0.7)
+localBox.Name = "LocalHitbox"
+
+RunService.RenderStepped:Connect(function()
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local value = character and character:GetAttribute("LocalMove")
+	local id = if typeof(value) == "string" then string.match(value, "^([^#]+)") else nil
+	local move = if id then Moves.Get(id) else nil
+	local visible = shown and character ~= nil and root ~= nil and root:IsA("BasePart") and move ~= nil
+		and move.Projectile == nil and not move.Targeted and move.OnHit.Kind ~= "None"
+		and character:GetAttribute("AttackPhase") == "Active"
+	if visible and move and root and root:IsA("BasePart") then
+		localBox.Size = move.Hitbox.Size
+		localBox.CFrame = Moves.HitboxCFrame(move, root.CFrame)
+		localBox.Parent = folder
+	else
+		localBox.Parent = nil
+	end
+end)
+
+SettingsMenu.AddToggle("Debug", "Hitbox view", false, function(on: boolean)
 	shown = on
 	if not shown then
 		folder:ClearAllChildren()
+		localBox.Parent = nil
 	end
 	remotes.Debug:InvokeServer("ShowHitboxes", shown)
 end)
@@ -11963,20 +12051,12 @@ remotes.Fx.OnClientEvent:Connect(function(info: { [string]: any })
 	if not shown or info.type ~= "Hitbox" or typeof(info.cframe) ~= "CFrame" or typeof(info.size) ~= "Vector3" then
 		return
 	end
-	local box = Instance.new("Part")
-	box.Anchored = true
-	box.CanCollide = false
-	box.CanQuery = false
-	box.CanTouch = false
-	box.CastShadow = false
-	box.Material = Enum.Material.ForceField
-	box.Color = if info.hit then Color3.fromRGB(255, 40, 40) else Color3.fromRGB(255, 150, 40)
-	box.Transparency = 0.3
-	box.CFrame = info.cframe
-	box.Size = info.size
-	box.Parent = folder
+	local part = box(if info.hit then HIT_COLOR else SERVER_COLOR, if info.hit then 0.45 else 0.75)
+	part.CFrame = info.cframe
+	part.Size = info.size
+	part.Parent = folder
 	task.delay(SHOW_TIME, function()
-		box:Destroy()
+		part:Destroy()
 	end)
 end)
 ]]></ProtectedString></Properties></Item><Item class="LocalScript" referent="RBXA701F08BF1964EFAB481B9D08F2064FF"><Properties><string name="Name">LotusFx</string><ProtectedString name="Source"><![CDATA[--!strict
@@ -13537,6 +13617,7 @@ local lastDeniedAt = -math.huge
 -- An attack key: what it does depends on what the body is doing (see the header).
 local function pressAttack(slot: string)
 	if combat:IsLocked() then
+		combat:Press(slot) -- buffered: comes out the moment the stun ends
 		return
 	end
 	if moth:CancelCharge() or moth:OnM1() then
@@ -15560,7 +15641,7 @@ function AutoParkour._setSlideBody(self: AutoParkour, on: boolean)
 	if on then
 		table.clear(self.savedParts)
 		for _, descendant in self.character:GetDescendants() do
-			if descendant:IsA("BasePart") and descendant ~= self.slideCollider then
+			if descendant:IsA("BasePart") and not rawequal(descendant, self.slideCollider) then
 				table.insert(self.savedParts, { part = descendant, canCollide = descendant.CanCollide, group = descendant.CollisionGroup })
 				if useGroup then
 					descendant.CollisionGroup = SLIDE_GROUP
@@ -15892,7 +15973,7 @@ function AutoParkour.Destroy(self: AutoParkour)
 	self.align:Destroy()
 	self.attachment:Destroy()
 	self.slideCollider:Destroy()
-	if active[self.character] == self then
+	if rawequal(active[self.character], self) then
 		active[self.character] = nil
 	end
 end
@@ -16107,7 +16188,7 @@ function CharacterMotor.new(character: Model): CharacterMotor
 	-- It's a little wider and deeper than the torso: when it's pressed against a ledge you
 	-- can't reach, the Humanoid's floor check (which uses the torso's footprint) stays just
 	-- short of the ledge top, so the Humanoid can't pop you up onto the edge.
-	local legLength = if humanoid.RigType == Enum.HumanoidRigType.R6 then 2 else humanoid.HipHeight
+	local legLength = 2 -- R6 legs (the game is R6 only)
 	local colliderHeight = math.max(legLength - Config.LowerColliderGap, 0.2)
 	local lowerCollider = Instance.new("Part")
 	lowerCollider.Name = "LowerBodyCollider"
@@ -16940,7 +17021,7 @@ function CharacterMotor.Destroy(self: CharacterMotor)
 	self.gravityForce:Destroy()
 	self.attachment:Destroy()
 	self.lowerCollider:Destroy()
-	if activeMotors[self.character] == self then
+	if rawequal(activeMotors[self.character], self) then
 		activeMotors[self.character] = nil
 	end
 end
@@ -17597,7 +17678,7 @@ function Dash.Destroy(self: Dash)
 	self.velocity:Destroy()
 	self.align:Destroy()
 	self.attachment:Destroy()
-	if active[self.character] == self then
+	if rawequal(active[self.character], self) then
 		active[self.character] = nil
 	end
 end
@@ -18170,7 +18251,7 @@ function LandingRoll.Destroy(self: LandingRoll)
 	self.velocity:Destroy()
 	self.align:Destroy()
 	self.attachment:Destroy()
-	if active[self.character] == self then
+	if rawequal(active[self.character], self) then
 		active[self.character] = nil
 	end
 end
@@ -19482,7 +19563,9 @@ function Lantern._stepLantern(self: Lantern, dt: number)
 		end
 	elseif self.state == "Returning" then
 		self:_stepReturn(dt)
-		if self.state == "Hip" then
+		-- (Re-read as the full type: _stepReturn may have caught it.)
+		local after: LanternState = (self :: any).state
+		if after == "Hip" then
 			self:_updateCopy()
 			return
 		end
@@ -19783,7 +19866,7 @@ function Lantern.Destroy(self: Lantern)
 	self.velocity:Destroy()
 	self.align:Destroy()
 	self.attachment:Destroy()
-	if active[self.character] == self then
+	if rawequal(active[self.character], self) then
 		active[self.character] = nil
 	end
 end
@@ -21082,7 +21165,7 @@ function Stamina.Destroy(self: Stamina)
 		self.connection:Disconnect()
 		self.connection = nil
 	end
-	if active[self.character] == self then
+	if rawequal(active[self.character], self) then
 		active[self.character] = nil
 	end
 end
@@ -21693,7 +21776,7 @@ function WallHop.Destroy(self: WallHop)
 	self.velocity:Destroy()
 	self.align:Destroy()
 	self.attachment:Destroy()
-	if active[self.character] == self then
+	if rawequal(active[self.character], self) then
 		active[self.character] = nil
 	end
 end
@@ -22574,7 +22657,11 @@ return CombatBody
 --     plays it, moves you with it (step, lunge, hanging in the air), and asks the server to run it
 --   * clicking during a swing queues the next M1; a move that hit can cancel into its follow-ups
 --     (M1 / dagger -> 1), and the launcher's recovery can be jumped out of (JumpCancel)
+--   * any other key pressed while you can't act yet is buffered for InputBuffer frames and comes
+--     out the first frame it can: when the move ends, when a hit confirms a cancel, when stun ends
 --   * F: block while held, a fresh press is also a parry try (the server times the window)
+--   * hit pause is predicted: the first active frame your own hitbox touches someone freezes the
+--     swing at once (the block pause if their guard is up); the server's answer doesn't pause again
 --   * reacts to the server: a refused move stops; a hit pauses the swing (hit pause); getting hit,
 --     blocking, being parried or knocked down plays out through Reactions
 --   * while the server says you're stunned ("Stunned" attribute) you can't move, jump or act;
@@ -22623,6 +22710,7 @@ type Current = {
 	queued: string?,
 	phase: Phase,
 	look: Vector3,
+	predicted: boolean, -- the hit pause already started from our own hitbox check
 }
 
 local CombatClient = {}
@@ -22654,6 +22742,8 @@ type Data = {
 	lastAdvantage: number?,
 	destroyed: boolean,
 	backForTest: boolean?,
+	-- The last key pressed too early (see InputBuffer).
+	buffered: { slot: string, lunge: boolean?, at: number }?,
 }
 
 export type CombatClient = typeof(setmetatable({} :: Data, CombatClient))
@@ -22695,6 +22785,7 @@ function CombatClient.new(character: Model, motor: CharacterMotor.CharacterMotor
 		lastAdvantage = nil,
 		destroyed = false,
 		backForTest = nil,
+		buffered = nil,
 	} :: Data, CombatClient)
 
 	table.insert(self.connections, RunService.Heartbeat:Connect(function(dt: number)
@@ -22841,8 +22932,12 @@ end
 -- A key press: "M1", "M2" or "One". lunge = came from a front dash (the running M1).
 -- Returns whether something started or was queued.
 function CombatClient.Press(self: CombatClient, slot: string, lunge: boolean?): boolean
-	if self.destroyed or self.locked or self.humanoid.Health <= 0 then
+	if self.destroyed or self.humanoid.Health <= 0 then
 		return false
+	end
+	if self.locked then
+		self:_buffer(slot, lunge) -- comes out when the stun ends
+		return true
 	end
 	if self.blockHeld then
 		return false
@@ -22862,7 +22957,8 @@ function CombatClient.Press(self: CombatClient, slot: string, lunge: boolean?): 
 				current.queued = "M1"
 				return true
 			end
-			return false
+			self:_buffer(slot, lunge)
+			return true
 		end
 	end
 	if self:GetCooldown(move.CooldownGroup) > 0 then
@@ -22880,6 +22976,29 @@ function CombatClient.Press(self: CombatClient, slot: string, lunge: boolean?): 
 	return true
 end
 
+-- Keeps a press that came too early (replacing an older one).
+function CombatClient._buffer(self: CombatClient, slot: string, lunge: boolean?)
+	self.buffered = { slot = slot, lunge = lunge, at = os.clock() }
+end
+
+-- Tries the buffered press again, if it's still fresh. Keeps its original time if it's still too
+-- early, so it can't live longer than InputBuffer.
+function CombatClient._tryBuffered(self: CombatClient)
+	local buffered = self.buffered
+	if not buffered then
+		return
+	end
+	self.buffered = nil
+	if os.clock() - buffered.at > Config.InputBuffer * FRAME then
+		return
+	end
+	self:Press(buffered.slot, buffered.lunge)
+	local again = self.buffered
+	if again then
+		again.at = buffered.at
+	end
+end
+
 -- A move key let go. R: a quick tap (within RipOutFrames of pressing) turns the heal into the
 -- rip-out; later, it ends the heal channel (the share channelled counts, on the server).
 function CombatClient.Release(self: CombatClient, slot: string)
@@ -22887,7 +23006,11 @@ function CombatClient.Release(self: CombatClient, slot: string)
 		return
 	end
 	local current = self.current
-	if not current or not current.move.Channel then
+	if not current then
+		return
+	end
+	local move: Move = current.move
+	if not move.Channel then
 		return
 	end
 	local frame = math.floor(current.elapsed / FRAME + 1e-6)
@@ -22899,7 +23022,6 @@ function CombatClient.Release(self: CombatClient, slot: string)
 		return
 	end
 	self.remotes.Release:FireServer("R")
-	local move = current.move
 	current.elapsed = math.max(current.elapsed, (move.Startup + move.Active) * FRAME)
 end
 
@@ -23002,12 +23124,13 @@ function CombatClient._start(self: CombatClient, move: Move)
 		queued = nil,
 		phase = "Startup",
 		look = look,
+		predicted = false,
 	}
 	if move.Cooldown > 0 then
 		self.cooldowns[move.CooldownGroup] = os.clock() + move.Cooldown
 		self.cooldownTotals[move.CooldownGroup] = move.Cooldown
 	end
-	self.remotes.Move:FireServer(move.Id, self.seq)
+	self.remotes.Move:FireServer(move.Id, self.seq, look)
 	self.character:SetAttribute("AttackPhase", "Startup")
 	self.character:SetAttribute("LocalMove", move.Id .. "#" .. self.seq)
 	self.motor:SetSpeedScale("Attack", Config.AttackMoveSpeedScale)
@@ -23057,8 +23180,13 @@ function CombatClient._finish(self: CombatClient, interrupted: boolean)
 	if not self.locked then
 		self.body:Release()
 	end
-	if not interrupted and current.queued and not self.locked then
-		self:Press(current.queued)
+	if not interrupted and not self.locked then
+		if current.queued then
+			self:Press(current.queued)
+		end
+		if not self.current then
+			self:_tryBuffered()
+		end
 	end
 end
 
@@ -23091,6 +23219,9 @@ function CombatClient._step(self: CombatClient, dt: number)
 		self:_finish(false)
 		return
 	end
+	if phase == "Active" then
+		self:_predictHit(current)
+	end
 	if phase ~= current.phase then
 		current.phase = phase :: Phase
 		self.character:SetAttribute("AttackPhase", phase)
@@ -23105,6 +23236,42 @@ function CombatClient._step(self: CombatClient, dt: number)
 			end
 		end
 	end
+end
+
+-- Our own hitbox this frame: touching someone starts the hit pause now instead of a round trip
+-- later (the server still decides what the hit was).
+function CombatClient._predictHit(self: CombatClient, current: Current)
+	local move = current.move
+	if current.predicted or current.result ~= nil or move.Projectile or move.Targeted or move.OnHit.Kind == "None" then
+		return
+	end
+	local others: { Instance } = {}
+	for _, model in self:_opponents() do
+		local humanoid = model:FindFirstChildOfClass("Humanoid")
+		if humanoid and humanoid.Health > 0 then
+			table.insert(others, model)
+		end
+	end
+	if #others == 0 then
+		return
+	end
+	local params = OverlapParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = others
+	local cframe = CFrame.lookAlong(self.root.Position, current.look) * CFrame.new(0, move.Hitbox.Up, -move.Hitbox.Forward)
+	local touched = Workspace:GetPartBoundsInBox(cframe, move.Hitbox.Size, params)
+	if #touched == 0 then
+		return
+	end
+	local model = touched[1]:FindFirstAncestorOfClass("Model")
+	while model and not model:FindFirstChildOfClass("Humanoid") do
+		model = model:FindFirstAncestorOfClass("Model")
+	end
+	local guarded = model ~= nil and model:GetAttribute("Guard") == true
+	local hitstop = (if guarded then Config.BlockHitstop else move.Hitstop) * FRAME
+	current.predicted = true
+	current.pauseUntil = math.max(current.pauseUntil, os.clock() + hitstop)
+	self.anim:Freeze(hitstop)
 end
 
 function CombatClient._onResult(self: CombatClient, seq: number, result: string, hitstop: number)
@@ -23123,10 +23290,20 @@ function CombatClient._onResult(self: CombatClient, seq: number, result: string,
 	end
 	self.lastResult = result
 	current.result = current.result or result
-	if hitstop > 0 then
+	if result == "Hit" or result == "Counter" then
+		-- A cancel pressed before the server confirmed the hit comes out now.
+		local buffered = self.buffered
+		local follow = if buffered then Loadout.Pick(buffered.slot, self:_context(buffered.lunge)) else nil
+		if follow and table.find(current.move.CancelInto, follow) then
+			self:_tryBuffered()
+			return
+		end
+	end
+	if hitstop > 0 and not current.predicted then
 		current.pauseUntil = os.clock() + hitstop
 		self.anim:Freeze(hitstop)
 	end
+	current.predicted = true
 	local grab = current.move.Grab
 	if grab and (result == "Hit" or result == "Counter") then
 		-- Caught them: feast for the hold.
@@ -23156,6 +23333,9 @@ function CombatClient._updateLock(self: CombatClient)
 		self:_finish(true)
 	end
 	self:_updateBlockMovement()
+	if not locked then
+		self:_tryBuffered()
+	end
 end
 
 -- BLOCK ------------------------------------------------------------------------------------
@@ -23206,6 +23386,7 @@ function CombatClient.ResetForTest(self: CombatClient)
 	self.chainEndedAt = -math.huge
 	self.lastResult = ""
 	self.lastAdvantage = nil
+	self.buffered = nil
 end
 
 function CombatClient.Destroy(self: CombatClient)
@@ -23221,7 +23402,7 @@ function CombatClient.Destroy(self: CombatClient)
 	self.reactions:Destroy()
 	self.body:Destroy()
 	self.anim:Stop()
-	if active[self.character] == self then
+	if rawequal(active[self.character], self) then
 		active[self.character] = nil
 	end
 end
@@ -23343,6 +23524,14 @@ local CombatConfig = {
 	-- A request that arrives this many frames before the current move ends is kept and started
 	-- the moment it can (the server's view of timing is a little behind the attacker's).
 	ServerBuffer = 8,
+	-- The server aims a move's hitbox where the attacker's client swung (its soft lock turns you
+	-- before the server sees it), if that's within this many degrees of where the server sees them
+	-- facing.
+	AimTrust = 75,
+	-- Input buffer: a key pressed while you can't act yet (a move still playing, stunned, blockstun)
+	-- is kept this many frames and comes out the first frame you can, so presses a little early
+	-- (or before the server confirmed a hit to cancel from) aren't lost.
+	InputBuffer = 10,
 	-- Soft lock: an attack started with an opponent within this range and this angle of where you
 	-- face turns you toward them.
 	AimAssistRange = 12,
@@ -26486,6 +26675,7 @@ export type Run = {
 	costPaid: number, -- meter this move cost (refunded by a stage 3 stab's counter-hit)
 	followUp: boolean, -- started right after a different Lotus key hit (the move's FollowUp bonus)
 	aimPoint: Vector3?, -- where a Targeted move erupts
+	look: Vector3, -- the flat direction the attacker swung in (their client's aim, checked)
 	projectiles: number, -- shots still flying (a miss is only a miss once they're all gone)
 }
 
@@ -26541,7 +26731,7 @@ type Data = {
 	state: State,
 	stateUntil: number,
 	run: Run?,
-	queued: { moveId: string, seq: number }?,
+	queued: { moveId: string, seq: number, look: Vector3? }?,
 	cooldowns: { [string]: number },
 	chain: number,
 	chainEndedAt: number,
@@ -26847,7 +27037,10 @@ end
 
 -- Starts `moveId` (the client already picked it). Returns "" or why not; "queue" = kept and started
 -- when the current move ends.
-function Fighter.RequestMove(self: Fighter, moveId: string, seq: number): string
+-- `look`: the flat direction the attacker's client swung in (its soft lock may have turned it
+-- before the server saw the turn). Used for the hitbox when it's close enough to where the server
+-- sees them facing (AimTrust degrees), else the server's facing.
+function Fighter.RequestMove(self: Fighter, moveId: string, seq: number, look: Vector3?): string
 	local move = Moves.Get(moveId)
 	if not move then
 		return "unknown move"
@@ -26858,17 +27051,37 @@ function Fighter.RequestMove(self: Fighter, moveId: string, seq: number): string
 	local now = os.clock()
 	local why = self:CanStart(move, now)
 	if why == "queue" then
-		self.queued = { moveId = moveId, seq = seq }
+		self.queued = { moveId = moveId, seq = seq, look = look }
 		return "queue"
 	end
 	if why ~= "" then
 		return why
 	end
-	self:_start(move, seq, now)
+	self:_start(move, seq, now, look)
 	return ""
 end
 
-function Fighter._start(self: Fighter, move: Move, seq: number, now: number)
+-- The flat facing to use for a move: the client's `look` if it's sane and within AimTrust degrees
+-- of the server's view, else the server's.
+function Fighter._aimLook(self: Fighter, look: Vector3?): Vector3
+	local server = self.root.CFrame.LookVector
+	local flatServer = Vector3.new(server.X, 0, server.Z)
+	flatServer = if flatServer.Magnitude > 1e-3 then flatServer.Unit else Vector3.zAxis
+	if not look or look.X ~= look.X or look.Z ~= look.Z or look.Magnitude < 1e-3 then
+		return flatServer
+	end
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 1e-3 then
+		return flatServer
+	end
+	flat = flat.Unit
+	if flat:Dot(flatServer) < math.cos(math.rad(Config.AimTrust)) then
+		return flatServer
+	end
+	return flat
+end
+
+function Fighter._start(self: Fighter, move: Move, seq: number, now: number, look: Vector3?)
 	local previous = self.run
 	if previous and previous.move.Chain > 0 then
 		self.chain = previous.move.Chain
@@ -26887,6 +27100,7 @@ function Fighter._start(self: Fighter, move: Move, seq: number, now: number)
 		costPaid = 0,
 		followUp = false,
 		aimPoint = nil,
+		look = self:_aimLook(look),
 		projectiles = 0,
 	}
 	local run = self.run :: Run
@@ -26935,7 +27149,7 @@ function Fighter._endRun(self: Fighter)
 	local queued = self.queued
 	self.queued = nil
 	if queued then
-		local why = if self.state == "Idle" then self:RequestMove(queued.moveId, queued.seq) else "state " .. self.state
+		local why = if self.state == "Idle" then self:RequestMove(queued.moveId, queued.seq, queued.look) else "state " .. self.state
 		if why ~= "" and why ~= "queue" then
 			-- The client already started it: tell it to stop.
 			self.hooks.result(self, queued.seq, "Reject", 0)
@@ -27002,7 +27216,7 @@ function Fighter._checkHits(self: Fighter, frame: number, lastActive: boolean)
 		cframe = CFrame.new(at + Vector3.new(0, move.Hitbox.Size.Y / 2, 0))
 	else
 		local reach = if run.followUp then move.FollowUpReach else 0
-		cframe = self.root.CFrame * CFrame.new(0, move.Hitbox.Up, -(move.Hitbox.Forward + reach / 2))
+		cframe = CFrame.lookAlong(self.root.Position, run.look) * CFrame.new(0, move.Hitbox.Up, -(move.Hitbox.Forward + reach / 2))
 	end
 	local size = move.Hitbox.Size + Vector3.one * (Config.HitboxPad * 2)
 	if run.followUp and move.FollowUpReach > 0 then
@@ -27113,8 +27327,8 @@ end
 -- Where the impale erupts: the floor under the nearest airborne opponent in front within
 -- ImpaleRange, else the floor ImpaleRange / 2 ahead.
 function Fighter._impaleAim(self: Fighter): Vector3
-	local look = self.root.CFrame.LookVector
-	local flatLook = Vector3.new(look.X, 0, look.Z).Unit
+	local run = self.run
+	local flatLook = if run then run.look else self:_aimLook(nil)
 	local best: Vector3? = nil
 	local bestDistance = Config.ImpaleRange
 	for _, other in self.hooks.all() do
@@ -27920,9 +28134,7 @@ function Projectiles.Fire(owner: Fighter, run: Fighter.Run)
 	if not spec then
 		return
 	end
-	local look = owner.root.CFrame.LookVector
-	local flatLook = Vector3.new(look.X, 0, look.Z)
-	flatLook = if flatLook.Magnitude > 1e-3 then flatLook.Unit else Vector3.zAxis
+	local flatLook = run.look -- where the thrower's client aimed (checked by Fighter)
 	local params = worldParams()
 	for i = 1, spec.Count do
 		local angle = if spec.Count > 1 then -spec.Spread / 2 + spec.Spread * (i - 1) / (spec.Count - 1) else 0
@@ -27989,7 +28201,7 @@ function Projectiles.Redirect(by: Fighter, cframe: CFrame, size: Vector3)
 	local half = size / 2
 	for _, shot in shots do
 		local owner = shot.owner
-		if owner ~= by and owner.character ~= by.character then
+		if owner.character ~= by.character then
 			local p = cframe:PointToObjectSpace(shot.position)
 			if math.abs(p.X) <= half.X and math.abs(p.Y) <= half.Y + 1.5 and math.abs(p.Z) <= half.Z then
 				owner:ProjectileDone(shot.hit.seq)
@@ -28061,6 +28273,7 @@ function Projectiles.Step(dt: number)
 		overlap.FilterDescendantsInstances = others
 		local centre = if shot.ground then nextPosition + Vector3.new(0, 1.5, 0) else nextPosition
 		owner.hooks.sweep(owner, CFrame.new(centre), Vector3.one * (shot.radius * 2 + 1), shot.hit.move)
+		owner.hooks.fx({ type = "Hitbox", cframe = CFrame.new(centre), size = Vector3.one * (shot.radius * 2 + 1), hit = false })
 		local done = false
 		for _, part in Workspace:GetPartBoundsInRadius(centre, shot.radius + 0.5, overlap) do
 			local model = part:FindFirstAncestorOfClass("Model")
@@ -28269,7 +28482,7 @@ end
 
 -- REMOTES -------------------------------------------------------------------------------------
 
-remotes.Move.OnServerEvent:Connect(function(player: Player, moveId: unknown, seq: unknown)
+remotes.Move.OnServerEvent:Connect(function(player: Player, moveId: unknown, seq: unknown, look: unknown)
 	if typeof(moveId) ~= "string" or typeof(seq) ~= "number" or #moveId > 40 then
 		return
 	end
@@ -28277,7 +28490,7 @@ remotes.Move.OnServerEvent:Connect(function(player: Player, moveId: unknown, seq
 	if not fighter then
 		return
 	end
-	local why = fighter:RequestMove(moveId, seq)
+	local why = fighter:RequestMove(moveId, seq, if typeof(look) == "Vector3" then look else nil)
 	if why ~= "" and why ~= "queue" then
 		reject(player, string.format("%s refused: %s", moveId, why))
 		remotes.Result:FireClient(player, seq, "Reject", 0)

@@ -193,7 +193,7 @@ function CharacterMotor.new(character: Model): CharacterMotor
 	-- It's a little wider and deeper than the torso: when it's pressed against a ledge you
 	-- can't reach, the Humanoid's floor check (which uses the torso's footprint) stays just
 	-- short of the ledge top, so the Humanoid can't pop you up onto the edge.
-	local legLength = if humanoid.RigType == Enum.HumanoidRigType.R6 then 2 else humanoid.HipHeight
+	local legLength = 2 -- R6 legs (the game is R6 only)
 	local colliderHeight = math.max(legLength - Config.LowerColliderGap, 0.2)
 	local lowerCollider = Instance.new("Part")
 	lowerCollider.Name = "LowerBodyCollider"
@@ -1026,7 +1026,7 @@ function CharacterMotor.Destroy(self: CharacterMotor)
 	self.gravityForce:Destroy()
 	self.attachment:Destroy()
 	self.lowerCollider:Destroy()
-	if activeMotors[self.character] == self then
+	if rawequal(activeMotors[self.character], self) then
 		activeMotors[self.character] = nil
 	end
 end

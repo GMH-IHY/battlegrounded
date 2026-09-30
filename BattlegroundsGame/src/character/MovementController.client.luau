@@ -145,6 +145,7 @@ local lastDeniedAt = -math.huge
 -- An attack key: what it does depends on what the body is doing (see the header).
 local function pressAttack(slot: string)
 	if combat:IsLocked() then
+		combat:Press(slot) -- buffered: comes out the moment the stun ends
 		return
 	end
 	if moth:CancelCharge() or moth:OnM1() then

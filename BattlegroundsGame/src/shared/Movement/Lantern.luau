@@ -1290,7 +1290,9 @@ function Lantern._stepLantern(self: Lantern, dt: number)
 		end
 	elseif self.state == "Returning" then
 		self:_stepReturn(dt)
-		if self.state == "Hip" then
+		-- (Re-read as the full type: _stepReturn may have caught it.)
+		local after: LanternState = (self :: any).state
+		if after == "Hip" then
 			self:_updateCopy()
 			return
 		end
@@ -1591,7 +1593,7 @@ function Lantern.Destroy(self: Lantern)
 	self.velocity:Destroy()
 	self.align:Destroy()
 	self.attachment:Destroy()
-	if active[self.character] == self then
+	if rawequal(active[self.character], self) then
 		active[self.character] = nil
 	end
 end

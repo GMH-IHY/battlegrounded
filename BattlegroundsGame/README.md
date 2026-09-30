@@ -24,7 +24,7 @@ The gear button in the top-right corner opens the settings menu. No debug tool u
 | Speedometer + frame data | Speed readout plus combat frame data: your move, its frame and phase, the last result and its frame advantage (on by default) |
 | Collision boxes | Every character's collision boxes |
 | Test panel (Studio) | Run every suite or one (Tests > Suites), results on screen and in Output |
-| Hitbox view (server) (Studio) | The server's real attack hitboxes |
+| Hitbox view (Studio) | Attack hitboxes: yours in blue the moment you swing, the server's in orange (red when they touch someone), projectiles too |
 | Animation gallery (Studio) | Every pose of an animation side by side; Next / Close buttons on screen |
 
 Other scripts add their own items with `SettingsMenu.AddToggle` / `AddButton` (`StarterPlayerScripts > SettingsMenu`).
