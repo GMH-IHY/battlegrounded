@@ -12,7 +12,7 @@ The place contains:
 - **ReplicatedStorage > Combat**: the move data (`MoveSets > Sword, Dagger, Lotus, Wind`, `Moves`, `Loadout`, `CombatConfig`), your own side of fights (`CombatClient`: predicted moves, block / parry, reactions), knockback physics (`CombatBody`), animations (`CombatAnimator`, `Reactions`), remotes, the weapon models (`WeaponModels`, generated `WeaponModelsData`) and the Lotus fungus growth (`FungusParts`, generated `FungusData`; `FxPieces` is the small effect-part helper).
 - **StarterPlayer > StarterCharacterScripts**: `MovementController` (every key: movement and combat), `Animate` (locomotion loops + transition clips), `MovementSounds`.
 - **StarterPlayer > StarterPlayerScripts**: the HUD, `BodyLean` (a very subtle stepped lean into turns), `MovementFx` (sweat in burnout, dust clouds), `CombatFx` (slashes, hit sparks, parry rings, warning flashes, hit pause, screen shake), `LotusFx` (strands, spikes, the beam, spores, fungal patches, wraps, bursts, heal specks, Infested blobs), head look, shift lock (Tab), the settings menu (`SettingsMenu`, the gear button) and the debug tools it switches (test panel, frame data, collision and hitbox views, animation gallery).
-- **ServerScriptService**: `CombatServer` with `Combat > Fighter` (each fighter's state machine, stamina, cooldowns), `HitResolver`, `Projectiles` (spores and the ground strand; Wind turns them around) and `Dummies` (the training dummies); race setup, lantern, sounds, head look, collision groups, and `StudioAnimationMirror`, which lets unpublished animations play in Studio playtests.
+- **ServerScriptService**: `CombatServer` with `Combat > Fighter` (each fighter's state machine, stamina, cooldowns), `HitResolver`, `Projectiles` (spores and the ground strand; Wind turns them around) and `Dummies` (the training dummies); race setup, lantern, sounds, head look, collision groups, and `StudioAnimationMirror`, which plays the local (unpublished) animations in Studio playtests.
 - **Workspace**: a baseplate, a spawn, **MovementTestCourse** (labelled obstacles: jump box, tall wall, 80-stud fall tower, runway, vault box, slide gap, ledge), **WallHopAlley** and **AnimRig_R6**. At runtime the server adds **TrainingDummies** at x = 80 (DummyStand, DummyBlock, DummyBlockAfterHit, DummyParry, DummyAttack; labels show their mode and the last combo) (the dummy the Animation Editor poses).
 
 ## Settings menu and debug tools
@@ -63,7 +63,11 @@ Run from this folder. They need Python 3 with `lxml`, `numpy`, `scipy` and `Pill
 
 `default.project.json` says which `src/` folder goes where. `tools/place.py` reads it, and it also works with Rojo if you ever switch to live-sync.
 
-Animations live in `tools/animations/` as Python: `anims.py` (locomotion + transition clips), `parkour_anims.py` (dashes, parkour), `moth_anims.py`, `combat_anims.py` (sword, dagger, block, parry, hit reactions), `wind_anims.py` (the Q push and pull), `lotus_anims.py` (every Lotus move, held / consumed reactions), listed in `catalog.py`. Key poses are written by hand; `timing.py` generates the in-betweens. Every pose uses Constant easing. Studio playtests use the local copies; a live server needs each animation published and its ID pasted into `AnimationConfig`.
+Animations live in `tools/animations/` as Python: `anims.py` (locomotion + transition clips), `parkour_anims.py` (dashes, parkour), `moth_anims.py`, `combat_anims.py` (sword, dagger, block, parry, hit reactions), `wind_anims.py` (the Q push and pull), `lotus_anims.py` (every Lotus move, held / consumed reactions), listed in `catalog.py`. Key poses are written by hand; `timing.py` generates the in-betweens. Every pose uses Constant easing. Animations are local for now (nothing is published): `build.py` writes them into the place and `StudioAnimationMirror` plays them in Studio playtests (`AnimationConfig.Names` lists them). Roblox only plays unpublished animations in Studio.
+
+## Sounds (local)
+
+Nothing is published: every sound is a Sound object in the place under **ReplicatedStorage > Sounds**. Import the audio folder into Studio once (keep the file names: `Sfx` finds each sound by its `SoundConfig` name or by its file name, e.g. `universeDash`, in any subfolder). At the start of every Studio playtest the Output lists the audio files that are still missing.
 
 ## Tests
 

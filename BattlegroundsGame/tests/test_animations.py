@@ -82,8 +82,8 @@ def lowest_foot(p):
 
 def luau_ids():
     text = open(os.path.join(SRC, "shared", "Movement", "AnimationConfig.luau"), encoding="utf-8").read()
-    block = re.search(r"Ids = \{(.*?)\n\t\} ::", text, re.S).group(1)
-    return re.findall(r"^\s*(\w+) = \"", block, re.M)
+    block = re.search(r"Names = \{(.*?)\n\t\} ::", text, re.S).group(1)
+    return re.findall(r"^\s*(\w+) = true", block, re.M)
 
 
 # ---------------- structure ----------------------------------------------------------------
@@ -135,8 +135,8 @@ def test_animation_config_matches_catalog():
     ids = luau_ids()
     missing_in_config = sorted(set(NAMES) - set(ids))
     unknown_in_config = sorted(set(ids) - set(NAMES))
-    assert not missing_in_config, f"add to AnimationConfig.Ids: {missing_in_config}"
-    assert not unknown_in_config, f"AnimationConfig.Ids names no animation: {unknown_in_config}"
+    assert not missing_in_config, f"add to AnimationConfig.Names: {missing_in_config}"
+    assert not unknown_in_config, f"AnimationConfig.Names names no animation: {unknown_in_config}"
 
 
 def test_code_only_loads_known_animations():
