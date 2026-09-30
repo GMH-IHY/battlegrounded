@@ -5,7 +5,7 @@
 -- Which move a key press picks. The attacker's client picks (it knows whether you're running,
 -- airborne or holding Space); the server checks the pick is one this key could make.
 -- Until the loadout menu exists every fighter carries the first build: Sword + Dagger + Lotus Fungus
--- + Wind.
+-- + Wind + Moth. The HUD builds its slots from the build (Loadout.Items / Slots).
 --
 --   M1   chain position 1-3 (Chain): ground M1 1 / 2 / 3, or the launcher for 3 with Space held;
 --        in the air M1 1 / 2 / the spike. Running (or a front dash) starts with the lunge instead.
@@ -30,9 +30,65 @@ export type Context = {
 	back: boolean?, -- S held (moving away from where you face)
 }
 
-export type Build = { Weapon: string, Secondary: string, Magic: string, Element: string }
+export type Build = { Weapon: string, Secondary: string, Magic: string, Element: string, Race: string }
 
-Loadout.Default = { Weapon = "Sword", Secondary = "Dagger", Magic = "Lotus", Element = "Wind" } :: Build
+Loadout.Default = { Weapon = "Sword", Secondary = "Dagger", Magic = "Lotus", Element = "Wind", Race = "Moth" } :: Build
+
+-- The build lanes in HUD order, and the character attribute each one is read from.
+Loadout.Lanes = { "Weapon", "Magic", "Element", "Secondary", "Race" }
+
+-- A character's build: its attributes Weapon / Secondary / Magic / Element / Race (set by the
+-- server), falling back to the default build. A race of "" or "None" means no race.
+function Loadout.BuildOf(character: Model): Build
+	local function pick(lane: string, default: string): string
+		local value = character:GetAttribute(lane)
+		return if typeof(value) == "string" then value else default
+	end
+	return {
+		Weapon = pick("Weapon", Loadout.Default.Weapon),
+		Secondary = pick("Secondary", Loadout.Default.Secondary),
+		Magic = pick("Magic", Loadout.Default.Magic),
+		Element = pick("Element", Loadout.Default.Element),
+		Race = pick("Race", Loadout.Default.Race),
+	}
+end
+
+-- What each item puts on the HUD: its skill slots (key shown, the Controls action, the name, or one
+-- name per Lotus stage, and the cooldown group) and whether it has a meter.
+export type HudSlot = { key: string, action: string, names: { string }, cooldown: string? }
+export type Item = { lane: string, slots: { HudSlot }, meter: string? }
+
+Loadout.Items = {
+	Sword = { lane = "Weapon", slots = { { key = "1", action = "One", names = { "Sword 1" }, cooldown = "Sword.One" } } },
+	Dagger = { lane = "Secondary", slots = { { key = "RMB", action = "M2", names = { "Dagger" }, cooldown = "Dagger" } } },
+	Lotus = {
+		lane = "Magic",
+		meter = "Lotus",
+		slots = {
+			{ key = "2", action = "Two", names = { "Stab", "Strand", "Spike" }, cooldown = "Lotus.Two" },
+			{ key = "3", action = "Three", names = { "Spore", "Spore Fan", "Beam" }, cooldown = "Lotus.Three" },
+			{ key = "4", action = "Four", names = { "Grab", "Grab", "Feast" }, cooldown = "Lotus.Four" },
+			{ key = "R", action = "R", names = { "Heal / Rip" }, cooldown = "Lotus.R" },
+			{ key = "G", action = "G", names = { "Form" }, cooldown = "Lotus.G" },
+		},
+	},
+	Wind = { lane = "Element", slots = { { key = "Q", action = "Q", names = { "Push / Pull" }, cooldown = "Wind.Q" } } },
+	Moth = { lane = "Race", slots = { { key = "Ctrl", action = "Race", names = { "Lantern" } } } },
+} :: { [string]: Item }
+
+-- Every HUD slot of a build, in lane order (unknown items add nothing).
+function Loadout.Slots(build: Build): { HudSlot }
+	local out = {}
+	for _, lane in Loadout.Lanes do
+		local item = Loadout.Items[(build :: any)[lane]]
+		if item then
+			for _, slot in item.slots do
+				table.insert(out, slot)
+			end
+		end
+	end
+	return out
+end
 
 local STAB = { "Lotus.Stab1", "Lotus.Strand2", "Lotus.Stab3" }
 local IMPALE: { [number]: string } = { [1] = "Lotus.Impale1", [3] = "Lotus.Impale3" }

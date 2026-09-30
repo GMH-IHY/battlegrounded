@@ -94,7 +94,7 @@ local function makeLabel(model: Model): TextLabel
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "DummyLabel"
 	gui.Size = UDim2.fromOffset(220, 44)
-	gui.StudsOffset = Vector3.new(0, 2.6, 0)
+	gui.StudsOffset = Vector3.new(0, 4.3, 0) -- above the status bars (OverheadBars)
 	gui.AlwaysOnTop = true
 	gui.MaxDistance = 60
 	local label = Instance.new("TextLabel")
