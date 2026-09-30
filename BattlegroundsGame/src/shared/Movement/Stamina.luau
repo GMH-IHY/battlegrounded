@@ -170,7 +170,7 @@ function Stamina.Destroy(self: Stamina)
 		self.connection:Disconnect()
 		self.connection = nil
 	end
-	if active[self.character] == self then
+	if rawequal(active[self.character], self) then
 		active[self.character] = nil
 	end
 end

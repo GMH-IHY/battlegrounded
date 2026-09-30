@@ -182,7 +182,7 @@ end
 
 -- REMOTES -------------------------------------------------------------------------------------
 
-remotes.Move.OnServerEvent:Connect(function(player: Player, moveId: unknown, seq: unknown)
+remotes.Move.OnServerEvent:Connect(function(player: Player, moveId: unknown, seq: unknown, look: unknown)
 	if typeof(moveId) ~= "string" or typeof(seq) ~= "number" or #moveId > 40 then
 		return
 	end
@@ -190,7 +190,7 @@ remotes.Move.OnServerEvent:Connect(function(player: Player, moveId: unknown, seq
 	if not fighter then
 		return
 	end
-	local why = fighter:RequestMove(moveId, seq)
+	local why = fighter:RequestMove(moveId, seq, if typeof(look) == "Vector3" then look else nil)
 	if why ~= "" and why ~= "queue" then
 		reject(player, string.format("%s refused: %s", moveId, why))
 		remotes.Result:FireClient(player, seq, "Reject", 0)

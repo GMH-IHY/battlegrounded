@@ -8,7 +8,11 @@
 --     plays it, moves you with it (step, lunge, hanging in the air), and asks the server to run it
 --   * clicking during a swing queues the next M1; a move that hit can cancel into its follow-ups
 --     (M1 / dagger -> 1), and the launcher's recovery can be jumped out of (JumpCancel)
+--   * any other key pressed while you can't act yet is buffered for InputBuffer frames and comes
+--     out the first frame it can: when the move ends, when a hit confirms a cancel, when stun ends
 --   * F: block while held, a fresh press is also a parry try (the server times the window)
+--   * hit pause is predicted: the first active frame your own hitbox touches someone freezes the
+--     swing at once (the block pause if their guard is up); the server's answer doesn't pause again
 --   * reacts to the server: a refused move stops; a hit pauses the swing (hit pause); getting hit,
 --     blocking, being parried or knocked down plays out through Reactions
 --   * while the server says you're stunned ("Stunned" attribute) you can't move, jump or act;
@@ -57,6 +61,7 @@ type Current = {
 	queued: string?,
 	phase: Phase,
 	look: Vector3,
+	predicted: boolean, -- the hit pause already started from our own hitbox check
 }
 
 local CombatClient = {}
@@ -88,6 +93,8 @@ type Data = {
 	lastAdvantage: number?,
 	destroyed: boolean,
 	backForTest: boolean?,
+	-- The last key pressed too early (see InputBuffer).
+	buffered: { slot: string, lunge: boolean?, at: number }?,
 }
 
 export type CombatClient = typeof(setmetatable({} :: Data, CombatClient))
@@ -129,6 +136,7 @@ function CombatClient.new(character: Model, motor: CharacterMotor.CharacterMotor
 		lastAdvantage = nil,
 		destroyed = false,
 		backForTest = nil,
+		buffered = nil,
 	} :: Data, CombatClient)
 
 	table.insert(self.connections, RunService.Heartbeat:Connect(function(dt: number)
@@ -275,8 +283,12 @@ end
 -- A key press: "M1", "M2" or "One". lunge = came from a front dash (the running M1).
 -- Returns whether something started or was queued.
 function CombatClient.Press(self: CombatClient, slot: string, lunge: boolean?): boolean
-	if self.destroyed or self.locked or self.humanoid.Health <= 0 then
+	if self.destroyed or self.humanoid.Health <= 0 then
 		return false
+	end
+	if self.locked then
+		self:_buffer(slot, lunge) -- comes out when the stun ends
+		return true
 	end
 	if self.blockHeld then
 		return false
@@ -296,7 +308,8 @@ function CombatClient.Press(self: CombatClient, slot: string, lunge: boolean?): 
 				current.queued = "M1"
 				return true
 			end
-			return false
+			self:_buffer(slot, lunge)
+			return true
 		end
 	end
 	if self:GetCooldown(move.CooldownGroup) > 0 then
@@ -314,6 +327,29 @@ function CombatClient.Press(self: CombatClient, slot: string, lunge: boolean?): 
 	return true
 end
 
+-- Keeps a press that came too early (replacing an older one).
+function CombatClient._buffer(self: CombatClient, slot: string, lunge: boolean?)
+	self.buffered = { slot = slot, lunge = lunge, at = os.clock() }
+end
+
+-- Tries the buffered press again, if it's still fresh. Keeps its original time if it's still too
+-- early, so it can't live longer than InputBuffer.
+function CombatClient._tryBuffered(self: CombatClient)
+	local buffered = self.buffered
+	if not buffered then
+		return
+	end
+	self.buffered = nil
+	if os.clock() - buffered.at > Config.InputBuffer * FRAME then
+		return
+	end
+	self:Press(buffered.slot, buffered.lunge)
+	local again = self.buffered
+	if again then
+		again.at = buffered.at
+	end
+end
+
 -- A move key let go. R: a quick tap (within RipOutFrames of pressing) turns the heal into the
 -- rip-out; later, it ends the heal channel (the share channelled counts, on the server).
 function CombatClient.Release(self: CombatClient, slot: string)
@@ -321,7 +357,11 @@ function CombatClient.Release(self: CombatClient, slot: string)
 		return
 	end
 	local current = self.current
-	if not current or not current.move.Channel then
+	if not current then
+		return
+	end
+	local move: Move = current.move
+	if not move.Channel then
 		return
 	end
 	local frame = math.floor(current.elapsed / FRAME + 1e-6)
@@ -333,7 +373,6 @@ function CombatClient.Release(self: CombatClient, slot: string)
 		return
 	end
 	self.remotes.Release:FireServer("R")
-	local move = current.move
 	current.elapsed = math.max(current.elapsed, (move.Startup + move.Active) * FRAME)
 end
 
@@ -436,12 +475,13 @@ function CombatClient._start(self: CombatClient, move: Move)
 		queued = nil,
 		phase = "Startup",
 		look = look,
+		predicted = false,
 	}
 	if move.Cooldown > 0 then
 		self.cooldowns[move.CooldownGroup] = os.clock() + move.Cooldown
 		self.cooldownTotals[move.CooldownGroup] = move.Cooldown
 	end
-	self.remotes.Move:FireServer(move.Id, self.seq)
+	self.remotes.Move:FireServer(move.Id, self.seq, look)
 	self.character:SetAttribute("AttackPhase", "Startup")
 	self.character:SetAttribute("LocalMove", move.Id .. "#" .. self.seq)
 	self.motor:SetSpeedScale("Attack", Config.AttackMoveSpeedScale)
@@ -491,8 +531,13 @@ function CombatClient._finish(self: CombatClient, interrupted: boolean)
 	if not self.locked then
 		self.body:Release()
 	end
-	if not interrupted and current.queued and not self.locked then
-		self:Press(current.queued)
+	if not interrupted and not self.locked then
+		if current.queued then
+			self:Press(current.queued)
+		end
+		if not self.current then
+			self:_tryBuffered()
+		end
 	end
 end
 
@@ -525,6 +570,9 @@ function CombatClient._step(self: CombatClient, dt: number)
 		self:_finish(false)
 		return
 	end
+	if phase == "Active" then
+		self:_predictHit(current)
+	end
 	if phase ~= current.phase then
 		current.phase = phase :: Phase
 		self.character:SetAttribute("AttackPhase", phase)
@@ -539,6 +587,42 @@ function CombatClient._step(self: CombatClient, dt: number)
 			end
 		end
 	end
+end
+
+-- Our own hitbox this frame: touching someone starts the hit pause now instead of a round trip
+-- later (the server still decides what the hit was).
+function CombatClient._predictHit(self: CombatClient, current: Current)
+	local move = current.move
+	if current.predicted or current.result ~= nil or move.Projectile or move.Targeted or move.OnHit.Kind == "None" then
+		return
+	end
+	local others: { Instance } = {}
+	for _, model in self:_opponents() do
+		local humanoid = model:FindFirstChildOfClass("Humanoid")
+		if humanoid and humanoid.Health > 0 then
+			table.insert(others, model)
+		end
+	end
+	if #others == 0 then
+		return
+	end
+	local params = OverlapParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = others
+	local cframe = CFrame.lookAlong(self.root.Position, current.look) * CFrame.new(0, move.Hitbox.Up, -move.Hitbox.Forward)
+	local touched = Workspace:GetPartBoundsInBox(cframe, move.Hitbox.Size, params)
+	if #touched == 0 then
+		return
+	end
+	local model = touched[1]:FindFirstAncestorOfClass("Model")
+	while model and not model:FindFirstChildOfClass("Humanoid") do
+		model = model:FindFirstAncestorOfClass("Model")
+	end
+	local guarded = model ~= nil and model:GetAttribute("Guard") == true
+	local hitstop = (if guarded then Config.BlockHitstop else move.Hitstop) * FRAME
+	current.predicted = true
+	current.pauseUntil = math.max(current.pauseUntil, os.clock() + hitstop)
+	self.anim:Freeze(hitstop)
 end
 
 function CombatClient._onResult(self: CombatClient, seq: number, result: string, hitstop: number)
@@ -557,10 +641,20 @@ function CombatClient._onResult(self: CombatClient, seq: number, result: string,
 	end
 	self.lastResult = result
 	current.result = current.result or result
-	if hitstop > 0 then
+	if result == "Hit" or result == "Counter" then
+		-- A cancel pressed before the server confirmed the hit comes out now.
+		local buffered = self.buffered
+		local follow = if buffered then Loadout.Pick(buffered.slot, self:_context(buffered.lunge)) else nil
+		if follow and table.find(current.move.CancelInto, follow) then
+			self:_tryBuffered()
+			return
+		end
+	end
+	if hitstop > 0 and not current.predicted then
 		current.pauseUntil = os.clock() + hitstop
 		self.anim:Freeze(hitstop)
 	end
+	current.predicted = true
 	local grab = current.move.Grab
 	if grab and (result == "Hit" or result == "Counter") then
 		-- Caught them: feast for the hold.
@@ -590,6 +684,9 @@ function CombatClient._updateLock(self: CombatClient)
 		self:_finish(true)
 	end
 	self:_updateBlockMovement()
+	if not locked then
+		self:_tryBuffered()
+	end
 end
 
 -- BLOCK ------------------------------------------------------------------------------------
@@ -640,6 +737,7 @@ function CombatClient.ResetForTest(self: CombatClient)
 	self.chainEndedAt = -math.huge
 	self.lastResult = ""
 	self.lastAdvantage = nil
+	self.buffered = nil
 end
 
 function CombatClient.Destroy(self: CombatClient)
@@ -655,7 +753,7 @@ function CombatClient.Destroy(self: CombatClient)
 	self.reactions:Destroy()
 	self.body:Destroy()
 	self.anim:Stop()
-	if active[self.character] == self then
+	if rawequal(active[self.character], self) then
 		active[self.character] = nil
 	end
 end

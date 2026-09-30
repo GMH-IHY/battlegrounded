@@ -83,9 +83,7 @@ function Projectiles.Fire(owner: Fighter, run: Fighter.Run)
 	if not spec then
 		return
 	end
-	local look = owner.root.CFrame.LookVector
-	local flatLook = Vector3.new(look.X, 0, look.Z)
-	flatLook = if flatLook.Magnitude > 1e-3 then flatLook.Unit else Vector3.zAxis
+	local flatLook = run.look -- where the thrower's client aimed (checked by Fighter)
 	local params = worldParams()
 	for i = 1, spec.Count do
 		local angle = if spec.Count > 1 then -spec.Spread / 2 + spec.Spread * (i - 1) / (spec.Count - 1) else 0
@@ -152,7 +150,7 @@ function Projectiles.Redirect(by: Fighter, cframe: CFrame, size: Vector3)
 	local half = size / 2
 	for _, shot in shots do
 		local owner = shot.owner
-		if owner ~= by and owner.character ~= by.character then
+		if owner.character ~= by.character then
 			local p = cframe:PointToObjectSpace(shot.position)
 			if math.abs(p.X) <= half.X and math.abs(p.Y) <= half.Y + 1.5 and math.abs(p.Z) <= half.Z then
 				owner:ProjectileDone(shot.hit.seq)
@@ -224,6 +222,7 @@ function Projectiles.Step(dt: number)
 		overlap.FilterDescendantsInstances = others
 		local centre = if shot.ground then nextPosition + Vector3.new(0, 1.5, 0) else nextPosition
 		owner.hooks.sweep(owner, CFrame.new(centre), Vector3.one * (shot.radius * 2 + 1), shot.hit.move)
+		owner.hooks.fx({ type = "Hitbox", cframe = CFrame.new(centre), size = Vector3.one * (shot.radius * 2 + 1), hit = false })
 		local done = false
 		for _, part in Workspace:GetPartBoundsInRadius(centre, shot.radius + 0.5, overlap) do
 			local model = part:FindFirstAncestorOfClass("Model")

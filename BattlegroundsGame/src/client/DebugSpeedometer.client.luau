@@ -246,7 +246,8 @@ local function onFrame(dt: number)
 		lanternText = "Race: " .. tostring(character:GetAttribute("Race") or "-")
 	end
 
-	local rig = if humanoid.RigType == Enum.HumanoidRigType.R6 then colour("R6", GREEN) else colour("R15", RED)
+	-- The game is R6 only: flag anything else loudly.
+	local rig = if humanoid.RigType == Enum.HumanoidRigType.R6 then colour("R6", GREEN) else colour("NOT R6", RED)
 
 	label.Text = table.concat({
 		string.format("Speed: %s %s", speedText, targetText),

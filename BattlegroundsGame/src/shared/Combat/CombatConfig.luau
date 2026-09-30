@@ -114,6 +114,14 @@ local CombatConfig = {
 	-- A request that arrives this many frames before the current move ends is kept and started
 	-- the moment it can (the server's view of timing is a little behind the attacker's).
 	ServerBuffer = 8,
+	-- The server aims a move's hitbox where the attacker's client swung (its soft lock turns you
+	-- before the server sees it), if that's within this many degrees of where the server sees them
+	-- facing.
+	AimTrust = 75,
+	-- Input buffer: a key pressed while you can't act yet (a move still playing, stunned, blockstun)
+	-- is kept this many frames and comes out the first frame you can, so presses a little early
+	-- (or before the server confirmed a hit to cancel from) aren't lost.
+	InputBuffer = 10,
 	-- Soft lock: an attack started with an opponent within this range and this angle of where you
 	-- face turns you toward them.
 	AimAssistRange = 12,

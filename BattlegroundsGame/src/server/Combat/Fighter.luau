@@ -84,6 +84,7 @@ export type Run = {
 	costPaid: number, -- meter this move cost (refunded by a stage 3 stab's counter-hit)
 	followUp: boolean, -- started right after a different Lotus key hit (the move's FollowUp bonus)
 	aimPoint: Vector3?, -- where a Targeted move erupts
+	look: Vector3, -- the flat direction the attacker swung in (their client's aim, checked)
 	projectiles: number, -- shots still flying (a miss is only a miss once they're all gone)
 }
 
@@ -139,7 +140,7 @@ type Data = {
 	state: State,
 	stateUntil: number,
 	run: Run?,
-	queued: { moveId: string, seq: number }?,
+	queued: { moveId: string, seq: number, look: Vector3? }?,
 	cooldowns: { [string]: number },
 	chain: number,
 	chainEndedAt: number,
@@ -445,7 +446,10 @@ end
 
 -- Starts `moveId` (the client already picked it). Returns "" or why not; "queue" = kept and started
 -- when the current move ends.
-function Fighter.RequestMove(self: Fighter, moveId: string, seq: number): string
+-- `look`: the flat direction the attacker's client swung in (its soft lock may have turned it
+-- before the server saw the turn). Used for the hitbox when it's close enough to where the server
+-- sees them facing (AimTrust degrees), else the server's facing.
+function Fighter.RequestMove(self: Fighter, moveId: string, seq: number, look: Vector3?): string
 	local move = Moves.Get(moveId)
 	if not move then
 		return "unknown move"
@@ -456,17 +460,37 @@ function Fighter.RequestMove(self: Fighter, moveId: string, seq: number): string
 	local now = os.clock()
 	local why = self:CanStart(move, now)
 	if why == "queue" then
-		self.queued = { moveId = moveId, seq = seq }
+		self.queued = { moveId = moveId, seq = seq, look = look }
 		return "queue"
 	end
 	if why ~= "" then
 		return why
 	end
-	self:_start(move, seq, now)
+	self:_start(move, seq, now, look)
 	return ""
 end
 
-function Fighter._start(self: Fighter, move: Move, seq: number, now: number)
+-- The flat facing to use for a move: the client's `look` if it's sane and within AimTrust degrees
+-- of the server's view, else the server's.
+function Fighter._aimLook(self: Fighter, look: Vector3?): Vector3
+	local server = self.root.CFrame.LookVector
+	local flatServer = Vector3.new(server.X, 0, server.Z)
+	flatServer = if flatServer.Magnitude > 1e-3 then flatServer.Unit else Vector3.zAxis
+	if not look or look.X ~= look.X or look.Z ~= look.Z or look.Magnitude < 1e-3 then
+		return flatServer
+	end
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 1e-3 then
+		return flatServer
+	end
+	flat = flat.Unit
+	if flat:Dot(flatServer) < math.cos(math.rad(Config.AimTrust)) then
+		return flatServer
+	end
+	return flat
+end
+
+function Fighter._start(self: Fighter, move: Move, seq: number, now: number, look: Vector3?)
 	local previous = self.run
 	if previous and previous.move.Chain > 0 then
 		self.chain = previous.move.Chain
@@ -485,6 +509,7 @@ function Fighter._start(self: Fighter, move: Move, seq: number, now: number)
 		costPaid = 0,
 		followUp = false,
 		aimPoint = nil,
+		look = self:_aimLook(look),
 		projectiles = 0,
 	}
 	local run = self.run :: Run
@@ -533,7 +558,7 @@ function Fighter._endRun(self: Fighter)
 	local queued = self.queued
 	self.queued = nil
 	if queued then
-		local why = if self.state == "Idle" then self:RequestMove(queued.moveId, queued.seq) else "state " .. self.state
+		local why = if self.state == "Idle" then self:RequestMove(queued.moveId, queued.seq, queued.look) else "state " .. self.state
 		if why ~= "" and why ~= "queue" then
 			-- The client already started it: tell it to stop.
 			self.hooks.result(self, queued.seq, "Reject", 0)
@@ -600,7 +625,7 @@ function Fighter._checkHits(self: Fighter, frame: number, lastActive: boolean)
 		cframe = CFrame.new(at + Vector3.new(0, move.Hitbox.Size.Y / 2, 0))
 	else
 		local reach = if run.followUp then move.FollowUpReach else 0
-		cframe = self.root.CFrame * CFrame.new(0, move.Hitbox.Up, -(move.Hitbox.Forward + reach / 2))
+		cframe = CFrame.lookAlong(self.root.Position, run.look) * CFrame.new(0, move.Hitbox.Up, -(move.Hitbox.Forward + reach / 2))
 	end
 	local size = move.Hitbox.Size + Vector3.one * (Config.HitboxPad * 2)
 	if run.followUp and move.FollowUpReach > 0 then
@@ -711,8 +736,8 @@ end
 -- Where the impale erupts: the floor under the nearest airborne opponent in front within
 -- ImpaleRange, else the floor ImpaleRange / 2 ahead.
 function Fighter._impaleAim(self: Fighter): Vector3
-	local look = self.root.CFrame.LookVector
-	local flatLook = Vector3.new(look.X, 0, look.Z).Unit
+	local run = self.run
+	local flatLook = if run then run.look else self:_aimLook(nil)
 	local best: Vector3? = nil
 	local bestDistance = Config.ImpaleRange
 	for _, other in self.hooks.all() do

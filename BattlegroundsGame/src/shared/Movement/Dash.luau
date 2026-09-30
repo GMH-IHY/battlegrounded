@@ -635,7 +635,7 @@ function Dash.Destroy(self: Dash)
 	self.velocity:Destroy()
 	self.align:Destroy()
 	self.attachment:Destroy()
-	if active[self.character] == self then
+	if rawequal(active[self.character], self) then
 		active[self.character] = nil
 	end
 end

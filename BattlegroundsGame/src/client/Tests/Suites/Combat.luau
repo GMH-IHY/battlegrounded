@@ -188,6 +188,40 @@ local tests: { Harness.Test } = {
 		end,
 	},
 	{
+		name = "Input buffer: an early 1 still cancels; a key late in a move comes out after it",
+		run = function(t)
+			local dummy = t:dummy("DummyStand")
+			t:faceDummy(dummy, 2.6)
+			t:debug("ClearCooldowns")
+			t.combat:ResetForTest()
+			-- 1 pressed during the stab's startup, long before the server confirms the hit.
+			t.combat.lastResult = ""
+			t:press("M2")
+			t:press("One")
+			t:waitFor(function()
+				return t.combat:GetMoveId() == "Sword.One"
+			end, 1)
+			t:check("the early 1 comes out as the cancel", t.combat:GetMoveId() == "Sword.One", tostring(t.combat:GetMoveId()))
+			waitIdle(t)
+			t:wait(0.4)
+			-- A dagger press in an M1's recovery (a whiff, so no cancel): it comes out right after.
+			t:teleport(dummy:GetPivot().Position + Vector3.new(-30, 1, 0), Vector3.new(-1, 0, 0))
+			t:debug("ClearCooldowns")
+			t.combat:ResetForTest()
+			t:press("M1")
+			t:waitFor(function()
+				return t.combat:GetPhase() == "Recovery"
+			end, 1)
+			t:wait(4 / 60) -- well inside the buffer window before the M1 ends
+			t:press("M2")
+			local dagger = t:waitFor(function()
+				return t.combat:GetMoveId() == "Dagger.Stab"
+			end, 0.6)
+			t:check("pressed during recovery, starts when the M1 ends", dagger, tostring(t.combat:GetMoveId()))
+			waitIdle(t)
+		end,
+	},
+	{
 		name = "Damage scaling",
 		run = function(t)
 			local scaling = t:debug("Scaling")
