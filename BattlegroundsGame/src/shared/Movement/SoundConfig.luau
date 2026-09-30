@@ -43,6 +43,19 @@ local S: { [string]: Entry } = {
 	Block = { File = "universeClash.ogg", Id = "", Volume = 0.6, Speed = 1.5, Vary = 0.05, Range = 90 },
 	Parry = { File = "sparkles.ogg", Id = "", Volume = 0.9, Speed = 1.3, Range = 120 },
 
+	-- LOTUS FUNGUS (placeholders from the existing files until it has its own sounds) ------------
+	FungusSwing = { File = "universeSwoosh.ogg", Id = "", Volume = 0.55, Speed = 0.8, Vary = 0.08, Range = 80 },
+	FungusHeavy = { File = "universeHeavySwing.ogg", Id = "", Volume = 0.7, Speed = 0.75, Vary = 0.05, Range = 90 },
+	FungusHit = { File = "ProjectileLand.ogg", Id = "", Volume = 0.7, Speed = 1.2, Vary = 0.06, Range = 100 },
+	FungusHitHeavy = { File = "ProjectileLand.ogg", Id = "", Volume = 0.9, Speed = 0.85, Vary = 0.05, Range = 110 },
+	FungusFeast = { File = "projectileLinkLand.ogg", Id = "", Volume = 0.8, Speed = 0.8, Range = 100 },
+	SporeThrow = { File = "projectileFire.ogg", Id = "", Volume = 0.6, Speed = 1.3, Vary = 0.06, Range = 90 },
+	SporeHit = { File = "ProjectileLand.ogg", Id = "", Volume = 0.6, Speed = 1.5, Vary = 0.06, Range = 90 },
+	BeamFire = { File = "heavenlyProjectileCharge.ogg", Id = "", Volume = 0.8, Speed = 0.7, Range = 140 },
+	FungusHeal = { File = "sparkles.ogg", Id = "", Volume = 0.6, Speed = 0.7, Range = 60 },
+	FungusRip = { File = "projectileLinkFire.ogg", Id = "", Volume = 0.8, Speed = 0.7, Range = 80 },
+	FungusForm = { File = "heavenlyProjectileCharge.ogg", Id = "", Volume = 0.9, Speed = 0.5, Range = 160 },
+
 	-- PARKOUR ---------------------------------------------------------------------
 	WallRun = { File = "universeFootStepLoop.ogg", Id = "", Volume = 0.55, Speed = 2.0, Looped = true, Range = 60 },
 	WallKick = { File = "universeSwoosh.ogg", Id = "", Volume = 0.75, Vary = 0.05, Range = 80 },

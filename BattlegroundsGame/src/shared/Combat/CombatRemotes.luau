@@ -8,6 +8,7 @@
 -- Client -> server
 --   Move(moveId, seq)             start a move (seq numbers your moves, for Result)
 --   Block(held)                   F pressed (true) / released (false)
+--   Release(slot)                 a move key let go (R: ends the heal channel)
 --   Tech()                        Shift while downed: tech roll
 --   Stamina(amount)               race mobility spent stamina (the server owns the meter)
 --   Debug(op, ...)                Studio only: test helpers (see CombatServer)
@@ -27,6 +28,7 @@ local CombatRemotes = {}
 export type Remotes = {
 	Move: RemoteEvent,
 	Block: RemoteEvent,
+	Release: RemoteEvent,
 	Tech: RemoteEvent,
 	Stamina: RemoteEvent,
 	Result: RemoteEvent,
@@ -35,7 +37,7 @@ export type Remotes = {
 	Debug: RemoteFunction,
 }
 
-local EVENTS = { "Move", "Block", "Tech", "Stamina", "Result", "Hit", "Fx" }
+local EVENTS = { "Move", "Block", "Release", "Tech", "Stamina", "Result", "Hit", "Fx" }
 
 local cached: Remotes? = nil
 

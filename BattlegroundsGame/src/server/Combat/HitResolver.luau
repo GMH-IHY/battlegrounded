@@ -2,18 +2,23 @@
 -- HitResolver (ModuleScript)
 -- Location: ServerScriptService > Combat > HitResolver
 --
--- What happens when an attacker's active hitbox touches a target (docs/DesignPlan.md, "Combat core").
--- In order:
+-- What happens when an attacker's active hitbox, or one of its projectiles, touches a target
+-- (docs/DesignPlan.md, "Combat core"; docs/MoveData.md). In order:
 --   invincible target (get-up, tech roll)          nothing (it may still hit on a later active frame)
---   parry window open, facing the hit              PARRY: the attacker is stuck ParryStun frames, the
---                                                  defender gets stamina and build-up on the attacker
+--   parry window open, facing the hit              PARRY: the attacker is stuck ParryStun frames (a
+--                                                  projectile just dies), the defender gets stamina and
+--                                                  build-up on the attacker
 --   guard up, facing the hit, blockable move       BLOCK: stamina drain (overdraw = burnout, burnout =
---                                                  chip damage), blockstun sized so the attacker ends
---                                                  at the move's OnBlock advantage, pushback
---   armour left on the target's move               ARMOUR: damage, no stun
---   otherwise                                      HIT: counter-hit if the target was starting a move;
---                                                  combo count, shrinking stun, damage scaling, juggle
---                                                  limit, Drafted, knockback / launch / spike
+--                                                  chip damage), blockstun sized so the attacker ends at
+--                                                  the move's OnBlock advantage, pushback. A blocked grab
+--                                                  does nothing. A Lotus move hitting an Infested
+--                                                  target's block WRAPS them (knocked down).
+--   armour on the target's move                    ARMOUR: damage, no stun (hyper armour: any number of
+--                                                  hits during its startup)
+--   otherwise                                      HIT: counter-hit if the target was starting a move (a
+--                                                  heal channel counts); combo count, shrinking stun,
+--                                                  damage scaling, juggle limit, Drafted, Lotus meter,
+--                                                  statuses, knockback / launch / spike / grab / impale
 -- Both characters freeze for the hit pause, and the move's own clock stops meanwhile, so the
 -- frame advantage stays what the move data says.
 -- Returns what happened ("Hit", "Counter", "Block", "Parry", "Armour") or nil when nothing did.
@@ -53,41 +58,51 @@ function HitResolver.Scale(combo: Fighter.Combo): number
 	return scale
 end
 
-local function applyDamage(target: Fighter, amount: number)
-	local humanoid = target.humanoid
-	local floor = if target.isDummy then 1 else 0
-	humanoid.Health = math.max(humanoid.Health - amount, floor)
+-- The attacker's move this hit belongs to, if it's still running (projectiles can outlive it).
+local function liveRun(attacker: Fighter, hit: Fighter.Hit): Fighter.Run?
+	local run = attacker.run
+	if run and run.seq == hit.seq and run.move == hit.move then
+		return run
+	end
+	return nil
 end
 
-function HitResolver.Resolve(attacker: Fighter, target: Fighter, frame: number, lastActive: boolean): string?
-	local run = attacker.run
-	if not run then
+function HitResolver.Resolve(attacker: Fighter, target: Fighter, hit: Fighter.Hit): string?
+	local move = hit.move
+	local run = liveRun(attacker, hit)
+	if not hit.projectile and not run then
 		return nil
 	end
-	local move = run.move
 	local now = os.clock()
 	if target.state == "Dead" or target:IsInvulnerable(now) then
 		return nil
 	end
-	local fromFront = target:FacingDot(attacker.root.Position) > -0.05
-	local hitPoint = target.root.Position:Lerp(attacker.root.Position, 0.35) + Vector3.new(0, 0.5, 0)
-	local away = flat(target.root.Position - attacker.root.Position)
+	-- Plain strings (the type checker narrows the Guard union wrongly across these checks).
+	local guard: string = move.Guard
+	local parryable = guard ~= "Unparryable"
+	local blockable = guard == "Normal"
+	local fromFront = move.AnyBlockSide or target:FacingDot(hit.origin) > -0.05
+	local hitPoint = target.root.Position:Lerp(hit.origin, 0.35) + Vector3.new(0, 0.5, 0)
+	local away = flat(target.root.Position - hit.origin)
 	if away == Vector3.zero then
 		away = flat(attacker.root.CFrame.LookVector)
 	end
-	local push = flat(attacker.root.CFrame.LookVector)
+	local push = if hit.direction then flat(hit.direction) else flat(attacker.root.CFrame.LookVector)
+	local isSpore = move.Fx.Arc == "Spore"
 
 	-- PARRY ------------------------------------------------------------------------------------
-	if target:ParryOpen(now) and fromFront and move.Guard ~= "Unparryable" then
+	if target:ParryOpen(now) and fromFront and parryable then
 		target:ConsumeParry()
 		target:GainStamina(Config.ParryStaminaGain)
 		local status = attacker:AddBuildup(Config.BuildupParry, target.element)
-		attacker:Interrupt()
-		attacker:SetState("Parried", Config.ParryStun * FRAME)
-		attacker.lastResult = "Parried"
 		target.lastResult = "Parry"
-		attacker.hooks.result(attacker, run.seq, "Parried", 0)
-		attacker.hooks.react(attacker, { kind = "Parried", stun = Config.ParryStun * FRAME, hitstop = 0, attacker = target.character })
+		attacker.lastResult = "Parried"
+		if not hit.projectile then
+			attacker:Interrupt()
+			attacker:SetState("Parried", Config.ParryStun * FRAME)
+			attacker.hooks.react(attacker, { kind = "Parried", stun = Config.ParryStun * FRAME, hitstop = 0, attacker = target.character })
+		end
+		attacker.hooks.result(attacker, hit.seq, "Parried", 0)
 		target.hooks.react(target, { kind = "Parry", attacker = attacker.character })
 		attacker.hooks.fx({ type = "Parry", attacker = attacker.character, target = target.character, position = hitPoint, move = move.Id })
 		if status then
@@ -97,30 +112,62 @@ function HitResolver.Resolve(attacker: Fighter, target: Fighter, frame: number, 
 	end
 
 	-- BLOCK ------------------------------------------------------------------------------------
-	if target:GuardUp() and fromFront and move.Guard == "Normal" then
-		if move.CrossUp and not lastActive then
+	if target:GuardUp() and fromFront and blockable then
+		if move.CrossUp and not hit.lastActive then
 			return nil -- decided on the last active frame: it may still get behind the guard
+		end
+		if move.Grab then
+			-- A blocked grab does nothing: the attacker is left in its long recovery.
+			if run then
+				run.result = run.result or "Block"
+			end
+			attacker.lastResult = "Block"
+			attacker.hooks.result(attacker, hit.seq, "Block", 0)
+			attacker.hooks.fx({ type = "Block", attacker = attacker.character, target = target.character, position = hitPoint, hitstop = 0, move = move.Id })
+			return "Block"
+		end
+		if move.Magic == "Lotus" and not isSpore and target:IsInfested() then
+			-- Infested: the growth wraps them instead.
+			target.infestedUntil = 0
+			target:TakeDamage(move.Damage, true)
+			target:Interrupt()
+			target:SetState("Downed", Config.WrapFrames * FRAME)
+			target.invulnerableUntil = 0
+			if run then
+				run.result = "Hit"
+				run.hitConfirmed = true
+			end
+			attacker.lastResult = "Hit"
+			attacker.hooks.result(attacker, hit.seq, "Hit", 0)
+			target.hooks.react(target, { kind = "Wrapped", stun = Config.WrapFrames * FRAME, hitstop = 0, attacker = attacker.character })
+			attacker.hooks.fx({ type = "Lotus", what = "Wrap", attacker = attacker.character, target = target.character, position = target.root.Position })
+			return "Hit"
 		end
 		local chip = if target.burnout then move.Damage * Config.BurnoutChip else 0
 		target:DrainStamina(move.Damage * Config.BlockStaminaPerDamage)
 		if chip > 0 then
-			applyDamage(target, chip)
+			target:TakeDamage(chip, false)
 		end
 		local hitstop = Config.BlockHitstop * FRAME
-		local blockstun = math.max(attacker:FramesLeft(frame) + move.OnBlock, 1)
+		local blockstun = if run
+			then math.max(attacker:FramesLeft(hit.frame >= 0 and hit.frame or attacker:MoveFrame()) + move.OnBlock, 1)
+			else move.BlockStun
 		target:Interrupt()
 		target:SetState("Blockstun", hitstop + blockstun * FRAME)
-		attacker:PauseMove(hitstop)
-		run.result = run.result or "Block"
+		if run then
+			attacker:PauseMove(hitstop)
+			run.result = run.result or "Block"
+		end
 		attacker.lastResult = "Block"
 		attacker.lastAdvantage = move.OnBlock
 		target.lastResult = "Blocked"
-		attacker.hooks.result(attacker, run.seq, "Block", hitstop, move.OnBlock)
+		local pushback = if move.BlockPush > 0 then move.BlockPush else Config.BlockPushback
+		attacker.hooks.result(attacker, hit.seq, "Block", hitstop, move.OnBlock)
 		target.hooks.react(target, {
 			kind = "Block",
 			stun = blockstun * FRAME,
 			hitstop = hitstop,
-			velocity = push * (Config.BlockPushback * 2 / 0.15),
+			velocity = push * (pushback * 2 / 0.15),
 			push = 0.15,
 			chip = chip,
 			burnout = target.burnout,
@@ -141,15 +188,24 @@ function HitResolver.Resolve(attacker: Fighter, target: Fighter, frame: number, 
 	-- ARMOUR -----------------------------------------------------------------------------------
 	local targetRun = target.run
 	local targetPhase = target:MovePhase()
-	if targetRun and targetRun.armour > 0 and (targetPhase == "Startup" or targetPhase == "Active") then
-		targetRun.armour -= 1
-		applyDamage(target, move.Damage)
+	local armoured = targetRun ~= nil
+		and (
+			(targetRun.armour > 0 and (targetPhase == "Startup" or targetPhase == "Active"))
+			or (targetRun.move.HyperArmour and targetPhase == "Startup")
+		)
+	if targetRun and armoured then
+		if not targetRun.move.HyperArmour then
+			targetRun.armour -= 1
+		end
+		target:TakeDamage(move.Damage, true)
 		local hitstop = move.Hitstop * FRAME
-		attacker:PauseMove(hitstop)
+		if run then
+			attacker:PauseMove(hitstop)
+			run.result = run.result or "Armour"
+		end
 		target:PauseMove(hitstop)
-		run.result = run.result or "Armour"
 		attacker.lastResult = "Armour"
-		attacker.hooks.result(attacker, run.seq, "Armour", hitstop)
+		attacker.hooks.result(attacker, hit.seq, "Armour", hitstop)
 		target.hooks.react(target, { kind = "Armour", hitstop = hitstop, attacker = attacker.character })
 		attacker.hooks.fx({ type = "Armour", attacker = attacker.character, target = target.character, position = hitPoint, hitstop = hitstop, move = move.Id })
 		return "Armour"
@@ -168,16 +224,38 @@ function HitResolver.Resolve(attacker: Fighter, target: Fighter, frame: number, 
 	if move.Linker then
 		combo.afterLinker = true
 	end
-	combo.damage += damage
-	applyDamage(target, damage)
+	local dealt = target:TakeDamage(damage, true)
+	combo.damage += dealt
 	target.lastHitAt = now
 
 	local hitstop = move.Hitstop * FRAME
-	attacker:PauseMove(hitstop)
-	run.result = if counter then "Counter" else "Hit"
-	run.hitConfirmed = true
-	attacker.lastResult = run.result :: string
+	local result = if counter then "Counter" else "Hit"
+	if run then
+		attacker:PauseMove(hitstop)
+		run.result = result
+		run.hitConfirmed = true
+	end
+	attacker.lastResult = result
 	target.lastResult = "Hit"
+
+	-- Lotus: the meter, follow-ups, statuses.
+	if move.Magic == "Lotus" then
+		local slot: string = move.Slot
+		attacker.lastLotusHit = { slot = slot, at = now }
+		if move.MeterGain > 0 then
+			attacker:AddMeter(move.MeterGain)
+		end
+		if move.SetMeter then
+			attacker:SetMeter(move.SetMeter)
+		end
+		if counter and move.RefundOnCounter and run and run.costPaid > 0 then
+			attacker:AddMeter(run.costPaid)
+		end
+	end
+	if move.Status == "Infested" then
+		target.infestedUntil = now + Config.InfestedTime
+		attacker.hooks.fx({ type = "Status", target = target.character, status = "Infested" })
+	end
 
 	local onHit = move.OnHit
 	local kind: string = onHit.Kind
@@ -186,7 +264,7 @@ function HitResolver.Resolve(attacker: Fighter, target: Fighter, frame: number, 
 		hitstop = hitstop,
 		attacker = attacker.character,
 		counter = counter,
-		damage = damage,
+		damage = dealt,
 		anim = HIT_ANIMS[(combo.hits - 1) % #HIT_ANIMS + 1],
 	}
 	local downed = target.state == "Downed"
@@ -203,15 +281,23 @@ function HitResolver.Resolve(attacker: Fighter, target: Fighter, frame: number, 
 	end
 
 	if kind == "Stun" then
-		local stun = onHit.Stun + (if counter then Config.CounterHitStun else 0) - Config.StunDecay * (combo.hits - 1)
-		stun = math.max(stun, Config.MinStun)
+		local stun
+		if counter and move.CounterStun then
+			stun = move.CounterStun
+		else
+			stun = onHit.Stun + (if counter then Config.CounterHitStun else 0)
+		end
+		if hit.followUp then
+			stun += move.FollowUpStun
+		end
+		stun = math.max(stun - Config.StunDecay * (combo.hits - 1), Config.MinStun)
 		target:Interrupt()
 		target:SetState("Stunned", hitstop + stun * FRAME)
 		info.stun = stun * FRAME
 		info.hang = onHit.Hang or not grounded and move.Air
 		info.velocity = push * (onHit.Knockback * 2 / 0.15)
 		info.push = 0.15
-		attacker.lastAdvantage = stun - attacker:FramesLeft(frame)
+		attacker.lastAdvantage = if run then stun - attacker:FramesLeft(if hit.frame >= 0 then hit.frame else attacker:MoveFrame()) else nil
 	elseif kind == "Launch" then
 		combo.launches += 1
 		local height = onHit.Launch
@@ -240,11 +326,29 @@ function HitResolver.Resolve(attacker: Fighter, target: Fighter, frame: number, 
 			info.velocity = away * (distance / 0.42) + Vector3.new(0, 34, 0)
 		end
 		attacker.lastAdvantage = nil
+	elseif kind == "Grab" or kind == "Impale" then
+		-- Held still (a grab's feast, an impale's spike), then thrown / dropped: a knockdown.
+		local frames, throw
+		local grab = move.Grab
+		if grab then
+			frames = grab.Hold
+			throw = away * (grab.Throw / 0.42) + Vector3.new(0, 30, 0)
+		else
+			frames = move.HeldFrames
+			throw = away * (math.max(onHit.Knockback, 2) / 0.42) + Vector3.new(0, 10, 0)
+		end
+		target:Interrupt()
+		target:SetState("Held", hitstop + frames * FRAME)
+		target.heldThrow = throw
+		info.kind = "Held"
+		info.stun = frames * FRAME
+		info.how = kind
+		attacker.lastAdvantage = nil
 	end
 
 	local status = target:AddBuildup(if counter then math.max(move.Buildup, Config.BuildupCounterHit) else move.Buildup, attacker.element)
 
-	attacker.hooks.result(attacker, run.seq, run.result :: string, hitstop, attacker.lastAdvantage)
+	attacker.hooks.result(attacker, hit.seq, result, if run then hitstop else 0, attacker.lastAdvantage)
 	target.hooks.react(target, info)
 	attacker.hooks.fx({
 		type = "Hit",
@@ -253,7 +357,7 @@ function HitResolver.Resolve(attacker: Fighter, target: Fighter, frame: number, 
 		position = hitPoint,
 		hitstop = hitstop,
 		counter = counter,
-		damage = damage,
+		damage = dealt,
 		kind = kind,
 		move = move.Id,
 		combo = combo.hits,
@@ -261,7 +365,7 @@ function HitResolver.Resolve(attacker: Fighter, target: Fighter, frame: number, 
 	if status then
 		attacker.hooks.fx({ type = "Status", target = target.character, status = status })
 	end
-	return run.result
+	return result
 end
 
 return HitResolver

@@ -2,7 +2,7 @@
 
 Draft, Sep 29, 2026. Every number is a placeholder chosen so the rules in [DesignPlan.md](DesignPlan.md) fit together; playtests tune them.
 
-**In the game (phase 2):** the global rules and stamina are `ReplicatedStorage > Combat > CombatConfig`; the Sword and Dagger tables are `Combat > MoveSets > Sword / Dagger` (plus what the tables here don't list: hit pause per move, pushback, the step / lunge distance, the slash shape). `python -m pytest tests` checks these tables against the move sets, so change both together. Lotus, Wind and Moth are still design only.
+**In the game (phase 2):** the global rules and stamina are `ReplicatedStorage > Combat > CombatConfig`; the Sword, Dagger and Lotus tables are `Combat > MoveSets > Sword / Dagger / Lotus` (meter rules in `CombatConfig`) (plus what the tables here don't list: hit pause per move, pushback, the step / lunge distance, the slash shape). `python -m pytest tests` checks these tables against the move sets, so change both together. Wind and Moth are still design only. Lotus is built as of phase 3 (see its notes below).
 
 ## Conventions
 
@@ -113,7 +113,11 @@ Draft, Sep 29, 2026. Every number is a placeholder chosen so the rules in [Desig
 | R rip out | Tap R | Startup 10 | −10 HP, −25 meter | Shared |
 | G | G at 100 meter | 30-frame startup with a flash | ~8 s of stage 3 form: stage 3 moves cost no meter; misses still hurt; meter to 20 after | 90 s |
 
-**Links:** sword 1 → any Lotus move is free. Which Lotus moves change when used right after each other is still to be designed (phase 3).
+**Links:** sword 1 → any Lotus move is free.
+
+**Follow-ups (first draft, phase 3):** within 1 s of landing a hit with a different Lotus key, a spore (3) that hits adds +6 stun, and a grab (4) reaches 2 studs further. So stab → spore → grab is the stage 1 string.
+
+**How the game does it (phase 3):** the stage is read when you press the key (`Loadout`), and the server checks it again. The stage 2 strand and the spores are server projectiles (`Projectiles`), parryable (no stagger) and blockable from any side. The impale is chosen when an airborne opponent is within 25 studs in front; the fungal patch appears under them at startup and the column rises from it. A grab or impale hit holds the target (state Held) and then throws or drops them into a knockdown. Stage 3 moves take their cost at startup; a miss costs 8 HP and a 20-frame stagger at the end of the move. The heal is a channel: letting R go ends it, and letting go within 10 frames turns it into the rip-out. Dummies never drop below 1 HP from fungus costs.
 
 ## Wind (element, Q)
 

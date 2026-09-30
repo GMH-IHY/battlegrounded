@@ -23,6 +23,7 @@ from catalog import ALL  # noqa: E402
 
 MOTH_DATA = os.path.join(HERE, "..", "..", "src", "shared", "Movement", "MothPartsData.luau")
 WEAPON_DATA = os.path.join(HERE, "..", "..", "src", "shared", "Combat", "WeaponModelsData.luau")
+FUNGUS_DATA = os.path.join(HERE, "..", "..", "src", "shared", "Combat", "FungusData.luau")
 R6 = ["RootJoint", "Neck", "Right Shoulder", "Left Shoulder", "Right Hip", "Left Hip"]
 BODY_COLORS = {"Torso": (40, 90, 170), "Head": (245, 205, 48), "Right Arm": (245, 205, 48),
                "Left Arm": (245, 205, 48), "Right Leg": (60, 140, 70), "Left Leg": (60, 140, 70)}
@@ -109,12 +110,32 @@ def load_weapons(path=WEAPON_DATA):
     return {"joints": joints, "mounts": mounts, "parts": load_moth_parts(path)["parts"]}
 
 
+def load_fungus(path=FUNGUS_DATA):
+    """Parses the generated FungusData module: growth pieces on their limb, by stage."""
+    if not os.path.exists(path):
+        return []
+    text = open(path, encoding="utf-8").read()
+    out = []
+    for limb, stage, shape, size, cf, rgb, neon in re.findall(
+            r'Limb = "([\w ]+)", Stage = (\d), Name = "\w+", Shape = "(\w+)", Size = Vector3\.new\(([^)]*)\), '
+            r'CFrame = CFrame\.new\(([^)]*)\), Color = Color3\.fromRGB\(([^)]*)\), Neon = (\w+)', text):
+        out.append({"limb": limb, "stage": int(stage), "kind": shape.lower(), "size": _floats(size),
+                    "rel": _cframe(_floats(cf)), "color": tuple(int(float(x)) for x in rgb.split(",")),
+                    "neon": neon == "true"})
+    return out
+
+
+# Lotus animations are drawn with the growth of this stage (0 = none).
+def fungus_stage_for(name):
+    return 3 if name.startswith("Lotus") else 0
+
+
 # ---------------- posing ----------------------------------------------------------------
 def joint_transform(joint, v):
     return transform(joint, v) if isinstance(v, dict) else v
 
 
-def world_pieces(keyed, extras, weapons=None, dagger_drawn=False):
+def world_pieces(keyed, extras, weapons=None, dagger_drawn=False, fungus=None, fungus_stage=0):
     """Everything to draw for one pose, in world space (standing R6 root at y = 3)."""
     world = {"HumanoidRootPart": np.array([[1, 0, 0, 0], [0, 1, 0, 3], [0, 0, 1, 0], [0, 0, 0, 1]], float)}
     for j in R6:
@@ -138,6 +159,10 @@ def world_pieces(keyed, extras, weapons=None, dagger_drawn=False):
         frame["Sheath"] = world[mounts["Sheath"]["part0"]] @ mounts["Sheath"]["c0"]
         for s in weapons["parts"]:
             pieces.append(dict(m=frame[s["bone"]] @ s["rel"], size=s["size"], color=s["color"], kind=s["kind"],
+                               neon=s["neon"]))
+    for s in fungus or []:
+        if s["stage"] <= fungus_stage:
+            pieces.append(dict(m=world[s["limb"]] @ s["rel"], size=s["size"], color=s["color"], kind=s["kind"],
                                neon=s["neon"]))
     return pieces
 
@@ -202,13 +227,15 @@ def poses_to_draw(anim):
 def sheet(anims, out):
     extras = load_moth_parts()
     weapons = load_weapons()
+    fungus = load_fungus()
     rows = []
     for a in anims:
         tiles = []
         keys = poses_to_draw(a)
         for idx, (t, keyed) in enumerate(keys):
             hold = (keys[idx + 1][0] if idx + 1 < len(keys) else a["keys"][-1][0]) - t
-            pieces = world_pieces(keyed, extras, weapons, a["name"].startswith("Dagger"))
+            pieces = world_pieces(keyed, extras, weapons, a["name"].startswith("Dagger"), fungus,
+                                  fungus_stage_for(a["name"]))
             tile = Image.new("RGB", (TILE_W, TILE_H * len(VIEWS) + LABEL_H), (40, 40, 40))
             for i, (_, yaw, pitch) in enumerate(VIEWS):
                 tile.paste(render(pieces, yaw, pitch), (0, LABEL_H + i * TILE_H))

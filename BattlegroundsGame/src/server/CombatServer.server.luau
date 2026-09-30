@@ -6,8 +6,10 @@
 --   * a Fighter (Combat > Fighter) for every player character and every training dummy
 --   * the combat remotes (ReplicatedStorage > Remotes > Combat, see CombatRemotes)
 --   * every frame: each fighter's timers, moves, hitboxes (HitResolver), stamina, build-up
---   * gives every character the sword and dagger (WeaponModels) until the loadout menu exists
--- Clients only ask: "start this move", "F is down", "tech roll", "I spent stamina".
+--   * gives every character the sword, the dagger (WeaponModels) and the Lotus Fungus (FungusParts)
+--     until the loadout menu exists
+--   * flies projectiles (Projectiles: spores, the ground strand)
+-- Clients only ask: "start this move", "F is down", "R let go", "tech roll", "I spent stamina".
 --
 -- Studio only: the Debug remote (test panel helpers) and hitbox broadcasting
 -- (ReplicatedStorage attribute "CombatShowHitboxes", toggled by the hitbox viewer, F5).
@@ -22,11 +24,13 @@ local Combat = ReplicatedStorage:WaitForChild("Combat")
 local CombatRemotes = require(Combat:WaitForChild("CombatRemotes"))
 local WeaponModels = require(Combat:WaitForChild("WeaponModels"))
 local FighterCollision = require(Combat:WaitForChild("FighterCollision"))
+local FungusParts = require(Combat:WaitForChild("FungusParts"))
 local Config = require(Combat:WaitForChild("CombatConfig"))
 
 local ServerCombat = script.Parent:WaitForChild("Combat")
 local Fighter = require(ServerCombat:WaitForChild("Fighter"))
 local HitResolver = require(ServerCombat:WaitForChild("HitResolver"))
+local Projectiles = require(ServerCombat:WaitForChild("Projectiles"))
 local Dummies = require(ServerCombat:WaitForChild("Dummies"))
 
 type Fighter = Fighter.Fighter
@@ -79,6 +83,9 @@ local hooks: Fighter.Hooks = {
 		return fighters[model]
 	end,
 	resolve = HitResolver.Resolve,
+	shoot = function(fighter: Fighter, run: Fighter.Run)
+		Projectiles.Fire(fighter, run)
+	end,
 }
 
 local function register(model: Model, fighter: Fighter)
@@ -102,6 +109,12 @@ local function onCharacter(player: Player, character: Model)
 	if not ok then
 		warn("[Combat] couldn't attach the weapons: " .. tostring(err))
 	end
+	character:WaitForChild("Head", 10)
+	local grown, why = pcall(FungusParts.Attach, character)
+	if not grown then
+		warn("[Combat] couldn't grow the fungus: " .. tostring(why))
+	end
+	character:SetAttribute("Magic", "Lotus")
 	FighterCollision.Apply(character)
 	fighters[character] = Fighter.new(character, player, hooks)
 	character.AncestryChanged:Connect(function()
@@ -154,6 +167,13 @@ remotes.Block.OnServerEvent:Connect(function(player: Player, held: unknown)
 	end
 end)
 
+remotes.Release.OnServerEvent:Connect(function(player: Player, slot: unknown)
+	local fighter = fighterOfPlayer(player)
+	if fighter and typeof(slot) == "string" then
+		fighter:ReleaseKey(slot)
+	end
+end)
+
 remotes.Tech.OnServerEvent:Connect(function(player: Player)
 	local fighter = fighterOfPlayer(player)
 	if fighter then
@@ -198,6 +218,9 @@ remotes.Debug.OnServerInvoke = function(player: Player, op: unknown, a: unknown,
 		own.draftedUntil = 0
 		own.parryLockUntil = 0
 		own.humanoid.Health = own.humanoid.MaxHealth
+		own:SetMeter(0)
+		own.formActive = false
+		own.infestedUntil = 0
 	elseif op == "DummyMode" then
 		local dummy = dummyNamed(a)
 		if dummy and typeof(b) == "string" and table.find(Dummies.Modes, b) then
@@ -231,6 +254,24 @@ remotes.Debug.OnServerInvoke = function(player: Player, op: unknown, a: unknown,
 			dummy.fighter:SetStamina(b)
 			return true
 		end
+	elseif op == "SetLotus" and own and typeof(a) == "number" then
+		own:SetMeter(a)
+		own.formActive = false
+	elseif op == "DummyLotus" then
+		local dummy = dummyNamed(a)
+		if dummy and typeof(b) == "number" then
+			dummy.fighter:SetMeter(b)
+			return true
+		end
+	elseif op == "LaunchDummy" then
+		-- Throws a dummy straight up (tests that need an airborne target).
+		local dummy = dummyNamed(a)
+		if dummy then
+			local height = if typeof(b) == "number" then b else 20
+			dummy.fighter:Knock("Launched", 1.2)
+			dummy.reactions:React({ kind = "Launch", velocity = Vector3.new(0, math.sqrt(2 * workspace.Gravity * height), 0), stun = 1.2, hitstop = 0 })
+			return true
+		end
 	elseif op == "Scaling" then
 		-- Damage scale by combo hit number (1-10), without and with a linker earlier in the combo.
 		local plain, linked = {}, {}
@@ -258,8 +299,11 @@ local function fighterOf(model: Model): Fighter?
 	return fighters[model]
 end
 
+local lastBeat = os.clock()
 RunService.Heartbeat:Connect(function()
 	local now = os.clock()
+	Projectiles.Step(math.min(now - lastBeat, 0.1))
+	lastBeat = now
 	for model, fighter in fighters do
 		if model.Parent then
 			fighter:Step(now)

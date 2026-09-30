@@ -74,6 +74,21 @@ local AnimationConfig = {
 		Downed = "",
 		GetUp = "",
 		TechRoll = "",
+		-- Lotus Fungus (MoveSets > Lotus): the fungus arm, being held, being consumed.
+		LotusStab = "",
+		LotusStrand = "",
+		LotusHeavyStab = "",
+		LotusImpale = "",
+		LotusSporeFlick = "",
+		LotusSporeFan = "",
+		LotusBeam = "",
+		LotusGrab = "",
+		LotusFeast = "",
+		LotusHeld = "",
+		LotusHeal = "",
+		LotusRipOut = "",
+		LotusForm = "",
+		LotusConsumed = "",
 	} :: { [string]: string },
 
 	-- Where Studio playtests read unpublished animations from.

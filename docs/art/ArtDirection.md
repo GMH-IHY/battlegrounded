@@ -58,6 +58,7 @@ Effects are a few parts whose size, position and transparency change in steps (c
 - It is built from low-poly blobs (Balls / small blocks) and thin spikes, speckled with the colours above.
 - **The hand stays uncovered** (the smallest section at the end of the arm), so the dagger and the lantern still work at every stage.
 - **Exception:** big fungal moves (the stage 3 stab spike, the impale, the grabs) may grow out from the side of the arm, or briefly cover the whole hand, then retract. You can't use the dagger or lantern during those moves anyway.
+- **In the game (phase 3):** `tools/models/fungus.py` builds all three stages as welded parts on the limbs (`FungusData`): shells over the forearm / arm / shoulder / chest, blobs, speckles, a few Neon cyan specks and bone spikes; stage 1 = 19 parts, stage 2 = +22, stage 3 = +36. The hand stays bare (the tool asserts it). The move effects (strand, spike, beam, grab cover) are thin plates and blobs in the same palette (`LotusFx`).
 - **Infection on an opponent:** blobs grow over their limbs in steps, pulse, then burst apart as debris (sphere shells + cubes in the palette).
 
 ## Moth

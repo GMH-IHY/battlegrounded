@@ -116,7 +116,10 @@ end
 
 local function near(position: Vector3): boolean
 	local camera = Workspace.CurrentCamera
-	return camera ~= nil and (camera.CFrame.Position - position).Magnitude <= MAX_DISTANCE
+	if not camera then
+		return false
+	end
+	return (camera.CFrame.Position - position).Magnitude <= MAX_DISTANCE
 end
 
 local function rootOf(model: Model?): BasePart?
@@ -150,7 +153,10 @@ local function slash(root: BasePart, arc: string, heavy: boolean, hand: string)
 		}, true)
 		return
 	end
-	local shape = ARCS[arc] or ARCS.Flat
+	local shape = ARCS[arc]
+	if not shape then
+		return -- not a sword / dagger cut (the Lotus draws its own: LotusFx)
+	end
 	local segments = if heavy then 7 else 5
 	local width = if heavy then 0.7 else 0.45
 	local radius = shape.radius + (if heavy then 0.5 else 0)
@@ -351,7 +357,8 @@ end)
 local remotes = CombatRemotes.Get()
 
 remotes.Fx.OnClientEvent:Connect(function(info: { [string]: any })
-	local kind = info.type
+	local kind: string = if typeof(info.type) == "string" then info.type else ""
+	local isStatus = kind == "Status"
 	local attacker: Model? = if typeof(info.attacker) == "Instance" and info.attacker:IsA("Model") then info.attacker else nil
 	local target: Model? = if typeof(info.target) == "Instance" and info.target:IsA("Model") then info.target else nil
 	local position: Vector3 = if typeof(info.position) == "Vector3" then info.position else Vector3.zero
@@ -361,7 +368,7 @@ remotes.Fx.OnClientEvent:Connect(function(info: { [string]: any })
 	if kind == "Hitbox" then
 		return -- HitboxViewer draws these
 	end
-	if not near(position) and kind ~= "Status" then
+	if not isStatus and not near(position) then
 		return
 	end
 	if kind == "Hit" then

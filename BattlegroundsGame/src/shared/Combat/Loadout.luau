@@ -4,12 +4,16 @@
 --
 -- Which move a key press picks. The attacker's client picks (it knows whether you're running,
 -- airborne or holding Space); the server checks the pick is one this key could make.
--- Until the loadout menu exists every fighter carries the first build: Sword + Dagger.
+-- Until the loadout menu exists every fighter carries the first build: Sword + Dagger + Lotus Fungus.
 --
 --   M1   chain position 1-3 (Chain): ground M1 1 / 2 / 3, or the launcher for 3 with Space held;
 --        in the air M1 1 / 2 / the spike. Running (or a front dash) starts with the lunge instead.
 --   M2   the dagger: the stab, or the air slash in the air.
 --   One  the sword's 1, or the air 1.
+--   Two / Three / Four   the Lotus stab / spore / grab of your meter stage (the form counts as
+--        stage 3); the stab becomes the impale against an airborne opponent in front (stages 1, 3).
+--   R    hold = the heal channel; a quick tap = rip out (rip = true).
+--   G    the stage 3 form.
 
 local Loadout = {}
 
@@ -18,11 +22,19 @@ export type Context = {
 	running: boolean,
 	spaceHeld: boolean,
 	chain: number, -- the chain position this press would be (1-3)
+	stage: number?, -- Lotus meter stage (1-3)
+	targetAirborne: boolean?, -- an airborne opponent in front, within the impale's range
+	rip: boolean?, -- R was tapped, not held
 }
 
-export type Build = { Weapon: string, Secondary: string }
+export type Build = { Weapon: string, Secondary: string, Magic: string }
 
-Loadout.Default = { Weapon = "Sword", Secondary = "Dagger" } :: Build
+Loadout.Default = { Weapon = "Sword", Secondary = "Dagger", Magic = "Lotus" } :: Build
+
+local STAB = { "Lotus.Stab1", "Lotus.Strand2", "Lotus.Stab3" }
+local IMPALE: { [number]: string } = { [1] = "Lotus.Impale1", [3] = "Lotus.Impale3" }
+local SPORE = { "Lotus.Spore1", "Lotus.Spore2", "Lotus.Beam3" }
+local GRAB = { "Lotus.Grab1", "Lotus.Grab2", "Lotus.Grab3" }
 
 local M1_GROUND = { "Sword.M1_1", "Sword.M1_2", "Sword.M1_3" }
 local M1_AIR = { "Sword.AirM1_1", "Sword.AirM1_2", "Sword.AirSpike" }
@@ -46,6 +58,21 @@ function Loadout.Pick(slot: string, ctx: Context): string?
 	elseif slot == "One" then
 		return if ctx.air then "Sword.AirOne" else "Sword.One"
 	end
+	local stage = math.clamp(ctx.stage or 1, 1, 3)
+	if slot == "Two" then
+		if ctx.targetAirborne and IMPALE[stage] then
+			return IMPALE[stage]
+		end
+		return STAB[stage]
+	elseif slot == "Three" then
+		return SPORE[stage]
+	elseif slot == "Four" then
+		return GRAB[stage]
+	elseif slot == "R" then
+		return if ctx.rip then "Lotus.RipOut" else "Lotus.Heal"
+	elseif slot == "G" then
+		return "Lotus.Form"
+	end
 	return nil
 end
 
@@ -55,8 +82,21 @@ function Loadout.CanPick(slot: string, moveId: string): boolean
 		for _, running in { false, true } do
 			for _, spaceHeld in { false, true } do
 				for chain = 1, 3 do
-					if Loadout.Pick(slot, { air = air, running = running, spaceHeld = spaceHeld, chain = chain }) == moveId then
-						return true
+					for stage = 1, 3 do
+						for _, flag in { false, true } do
+							local ctx = {
+								air = air,
+								running = running,
+								spaceHeld = spaceHeld,
+								chain = chain,
+								stage = stage,
+								targetAirborne = flag,
+								rip = flag,
+							}
+							if Loadout.Pick(slot, ctx) == moveId then
+								return true
+							end
+						end
 					end
 				end
 			end

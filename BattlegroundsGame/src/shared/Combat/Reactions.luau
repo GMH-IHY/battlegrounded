@@ -4,7 +4,8 @@
 --
 -- How a character reacts to what the server says happened to it: the hit stun flinch, being
 -- pushed back, hanging in the air, launched, knocked down, spiked, blocking a hit, parrying,
--- getting parried, lying on the floor and getting up. It runs where the character's physics and
+-- getting parried, lying on the floor and getting up, and the Lotus ones: held by a grab or an
+-- impale, wrapped in growth (Infested), consumed by your own missed stage 3 move. It runs where the character's physics and
 -- animations are owned: the player's own client (CombatClient) or the server for a dummy.
 --
 --   reactions:React(info)   the server's Hit message (HitResolver builds it)
@@ -20,7 +21,7 @@ local Reactions = {}
 Reactions.__index = Reactions
 
 -- Reaction animations that end when the stun ends.
-local STUN_ANIMS = { "HitStun1", "HitStun2", "HitAir", "BlockImpact", "Parried", "Launched" }
+local STUN_ANIMS = { "HitStun1", "HitStun2", "HitAir", "BlockImpact", "Parried", "Launched", "LotusHeld", "LotusConsumed" }
 
 type Data = {
 	character: Model,
@@ -140,6 +141,21 @@ function Reactions.React(self: Reactions, info: { [string]: any })
 		end)
 	elseif kind == "Downed" then
 		self.anim:Freeze(hitstop)
+	elseif kind == "Held" then
+		-- Caught by a grab or an impale: held still until the server throws / drops them.
+		self.anim:Play("LotusHeld")
+		local hold = if typeof(info.stun) == "number" then info.stun else 0.5
+		self:_after(hitstop, function()
+			body:Hang(hold)
+		end)
+	elseif kind == "Wrapped" then
+		-- Infested and caught blocking a Lotus move: wrapped in growth, down on the spot.
+		body:Release()
+		self.anim:Play("Downed")
+	elseif kind == "Consumed" then
+		-- Your own stage 3 move missed: the fungus bites back.
+		body:Release()
+		self.anim:Play("LotusConsumed")
 	end
 end
 
@@ -161,7 +177,7 @@ function Reactions._onState(self: Reactions)
 				self.anim:StopMove(name)
 			end
 		end
-		if was == "Stunned" or was == "Launched" or was == "Parried" or was == "Blockstun" or was == "Knockdown" then
+		if was == "Stunned" or was == "Launched" or was == "Parried" or was == "Blockstun" or was == "Knockdown" or was == "Held" then
 			self.body:Release()
 		end
 	end
