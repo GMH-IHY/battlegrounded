@@ -2,36 +2,35 @@
 -- Lantern (ModuleScript)
 -- Location: ReplicatedStorage > Movement > Lantern
 --
--- The Moth race's lantern and wings, on Left Ctrl. Runs on the client next to CharacterMotor (the
--- player owns their character's physics, and the thrown lantern is simulated here too so it feels
--- instant). Only works while the character's "Race" attribute is "Moth". Numbers: MovementConfig
--- "MOTH: LANTERN + WINGS".
+-- The Moth race's lantern and wings (docs/MoveData.md, "Moth"). Runs on the client next to
+-- CharacterMotor (the player owns their character's physics, and the thrown lantern is simulated
+-- here too so it feels instant). Only works while the character's "Race" attribute is "Moth".
+-- Numbers: MovementConfig "MOTH: LANTERN + WINGS".
 --
---   TAP  (lantern on the hip)       -> WING FLIGHT: ~WingFlightDistance studs where the camera looks,
+--   Ctrl TAP  (lantern on the hip)  -> WING BURST: ~WingFlightDistance studs where the camera looks,
 --                                      then WingFlightKeep of the speed carries on.
---   HOLD (lantern on the hip)       -> take it in hand and charge; RELEASE throws it at the crosshair
+--   Ctrl HOLD (lantern on the hip)  -> take it in hand and charge; RELEASE throws it at the crosshair
 --                                      (screen centre, shift lock or not), faster and farther the
 --                                      longer you held. While charging you face the aim and see the
---                                      exact path (glowing dots) and where it lands (ring).
---   PRESS while it's in the air     -> it stops and hangs there (once per throw).
---   HOLD (lantern not on you)       -> fly: to an opponent the lantern tagged, or freely inside a
---                                      hanging lantern's light. Letting go ends it.
---   M1 during any flight            -> ends it (MovementController then throws the M1).
--- Touching the lantern puts it back on the hip; while flying that gives a burst of speed. After a grab
--- it can't be thrown for LanternGrabCooldown.
+--                                      exact path (glowing dots) and where it will hang (ring).
+--   Ctrl PRESS (lantern out)        -> RECALL: it flies back to your hand.
+--   Space HELD in the air inside your own light -> FLY where the camera looks (W = faster). Letting
+--                                      go, leaving the light, burning out or M1 ends it.
+-- A throw does no damage: it stops at the first thing it meets (wall, floor, someone) or at the aimed
+-- point, and HANGS there lighting LanternLightRadius studs for LanternSuspendTime, then flies back.
+-- Knocked down (the server sets KnockId on the lantern when someone else's attack touches it): it
+-- falls and lies there (walk into it or recall it) and can't be thrown for LanternKnockLockout.
 --
 -- The throw is a projectile run in fixed steps by LanternPhysics: the preview and the real flight
--- use the same steps, so it lands on the ring. A direct hit on an opponent: LanternDamage + tag, and
--- it bounces back toward you. The first impact of a throw flashes (LanternFx.burst): opponents within
--- LanternBurstRadius that the flash can see are tagged (no damage). The server checks every hit.
+-- use the same steps, so it hangs on the ring.
 --
 -- Visuals: the server builds the lantern (LanternServer) and welds it to the hip / hand. While it's
 -- out, this client HIDES the server copy (LocalTransparencyModifier only; it's never moved from here,
 -- because moving it while it's still welded drags the character) and draws its own copy with no lag.
 -- Other players see it through LanternViewer, which replays the same arc.
--- Attributes: "Flying" = Wings / Free / Tag, "LanternState" = Hip / Charging / Thrown / Suspended / Dropped.
--- Animations (MothAnimations): MothWingFlight, MothFly (loop), LanternCharge (loop), LanternThrow,
--- LanternSuspend.
+-- Attributes: "Flying" = Wings / Free, "LanternState" = Hip / Charging / Thrown / Suspended /
+-- Dropped / Returning.
+-- Animations (MothAnimations): MothWingFlight, MothFly (loop), LanternCharge (loop), LanternThrow.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -55,11 +54,10 @@ local HAND_OFFSET = CFrame.new(0, -1.72, 0)
 local HIP_OFFSET = CFrame.new(1.18, -0.95, -0.05) * CFrame.Angles(0, 0, math.rad(-8))
 -- Where a throw leaves from, in the (flat) facing of the root: right shoulder, a bit in front.
 local THROW_ORIGIN = Vector3.new(1.0, 0.8, -1.2)
--- Throw preview while charging: glowing dots along the predicted flight, a ring where it lands.
+-- Throw preview while charging: glowing dots along the predicted flight, a ring where it will hang.
 local PREVIEW_SPACING = 2.2 -- studs between dots
 local PREVIEW_MAX_BALLS = 48
 local PREVIEW_COLOR = Color3.fromRGB(80, 200, 255)
-local PREVIEW_HIT_COLOR = Color3.fromRGB(255, 85, 75) -- ring colour when the path ends on someone
 local SYNC_INTERVAL = 1 / 20
 -- Most fixed flight steps run in one frame (a long hitch just slows the lantern down a little).
 local MAX_STEPS_PER_FRAME = 8
@@ -67,18 +65,17 @@ local MAX_STEPS_PER_FRAME = 8
 local VOID_MARGIN = 20
 -- How long to wait for the server to put the lantern back on the hip / hand before showing it anyway.
 local MOUNT_WAIT = 2
+-- A recalled lantern this close to the hand is back.
+local RECALL_ARRIVE = 1.5
+-- Hanging this far off whatever it stopped against (studs), so it isn't inside a wall or a person.
+local HANG_OFFSET = 0.35
 local FORWARD_KEY_MIN = 0.3
-local TAG_BRAKE = 9
-local TAG_MIN_CLOSING = 6
-local TAG_ARRIVE_SLACK = 0.3
-local TAG_MAX_LEAD = 0.3
-local TARGET_VEL_SMOOTHING = 0.5
 -- The flight never rises faster than this when it starts on the ground (studs/s), so a flat camera
 -- doesn't scrape the floor.
 local MIN_TAKEOFF_LIFT = 6
 
-export type LanternState = "Hip" | "Charging" | "Thrown" | "Suspended" | "Dropped"
-export type FlightKind = "Wings" | "Free" | "Tag"
+export type LanternState = "Hip" | "Charging" | "Thrown" | "Suspended" | "Dropped" | "Returning"
+export type FlightKind = "Wings" | "Free"
 
 local ANIMS = {
 	Rest = "MothWings", -- wings / antennae resting loop, under everything (Core priority)
@@ -86,7 +83,6 @@ local ANIMS = {
 	Fly = "MothFly",
 	Charge = "LanternCharge",
 	Throw = "LanternThrow",
-	Suspend = "LanternSuspend",
 }
 
 local function flatten(v: Vector3): Vector3
@@ -171,7 +167,10 @@ type LanternData = {
 	pressing: boolean,
 	pressAt: number,
 	holdHandled: boolean,
-	pressSuspended: boolean,
+	-- Space, for the flight: when it was pressed, and whether this press already tried to fly.
+	jumpWasHeld: boolean,
+	jumpAt: number,
+	flyTried: boolean,
 
 	state: LanternState,
 	chargeStart: number,
@@ -179,20 +178,22 @@ type LanternData = {
 	position: Vector3,
 	lanternVelocity: Vector3,
 	resting: boolean,
-	-- The current throw (projectile): start values, fixed-step flight time, leftover frame time.
+	-- The current throw (projectile): start values, fixed-step flight time, when it stops, leftover
+	-- frame time.
 	throwOrigin: Vector3,
 	throwVelocity: Vector3,
 	throwGravity: number,
+	throwStop: number,
 	flightTime: number,
 	stepCarry: number,
 	casts: LanternPhysics.Casts?,
 	castsAt: number,
 	throwAt: number,
-	canSuspend: boolean,
-	hitThisThrow: boolean,
-	burstDone: boolean,
 	suspendedUntil: number,
 	grabbedAt: number,
+	-- Knocked down: no throwing until then (os.clock); the server's KnockId last seen.
+	knockUntil: number,
+	knockSeen: number?,
 	-- Local visuals.
 	serverModel: Model?,
 	localCopy: Model?,
@@ -206,18 +207,12 @@ type LanternData = {
 	lastSync: number,
 	lastSyncPos: Vector3,
 
-	tagTarget: Model?,
-	tagUntil: number,
-	burstTagged: { Model },
-
 	flight: FlightKind?,
 	heading: Vector3,
 	speed: number,
 	flightStart: number,
 	wingEndAt: number,
 	lastWingFlight: number,
-	targetLastPos: Vector3,
-	targetVel: Vector3,
 	lastVelocity: Vector3,
 
 	lastInfo: string,
@@ -288,7 +283,9 @@ function Lantern.new(
 		pressing = false,
 		pressAt = 0,
 		holdHandled = true,
-		pressSuspended = false,
+		jumpWasHeld = false,
+		jumpAt = 0,
+		flyTried = false,
 
 		state = "Hip" :: LanternState,
 		chargeStart = 0,
@@ -298,16 +295,16 @@ function Lantern.new(
 		throwOrigin = root.Position,
 		throwVelocity = Vector3.zero,
 		throwGravity = LanternPhysics.gravity(),
+		throwStop = Config.LanternMaxFlightTime,
 		flightTime = 0,
 		stepCarry = 0,
 		casts = nil,
 		castsAt = -math.huge,
 		throwAt = -math.huge,
-		canSuspend = false,
-		hitThisThrow = false,
-		burstDone = false,
 		suspendedUntil = 0,
 		grabbedAt = -math.huge,
+		knockUntil = 0,
+		knockSeen = nil,
 		serverModel = nil,
 		localCopy = nil,
 		mountWaitUntil = 0,
@@ -320,18 +317,12 @@ function Lantern.new(
 		lastSync = 0,
 		lastSyncPos = root.Position,
 
-		tagTarget = nil,
-		tagUntil = 0,
-		burstTagged = {},
-
 		flight = nil,
 		heading = -Vector3.zAxis,
 		speed = 0,
 		flightStart = 0,
 		wingEndAt = 0,
 		lastWingFlight = -math.huge,
-		targetLastPos = Vector3.zero,
-		targetVel = Vector3.zero,
 		lastVelocity = Vector3.zero,
 
 		lastInfo = "",
@@ -413,7 +404,7 @@ function Lantern.Get(character: Model): Lantern?
 	return active[character]
 end
 
--- INFO (debug overlay, tests) --------------------------------------------------
+-- INFO (HUD, debug overlay, tests) ---------------------------------------------
 
 function Lantern.IsMoth(self: Lantern): boolean
 	return self.character:GetAttribute("Race") == RACE
@@ -457,25 +448,34 @@ function Lantern.GetTurnRate(self: Lantern): number
 	return Config.FlySharpTurnRate + (Config.FlyWideTurnRate - Config.FlySharpTurnRate) * t
 end
 
-function Lantern.GetTagTarget(self: Lantern): Model?
-	if self.tagTarget and os.clock() < self.tagUntil then
-		return self.tagTarget
-	end
-	return nil
-end
-
+-- Seconds until it can be thrown again after coming back to the hand.
 function Lantern.GetGrabCooldown(self: Lantern): number
 	return math.max(0, Config.LanternGrabCooldown - (os.clock() - self.grabbedAt))
 end
 
--- The Moth's movement cooldown for the HUD: (seconds left, full length). The wing flight's cooldown
--- while it runs, else the no-throw time after grabbing the lantern. (0, 1) when ready.
+-- Seconds until it can be thrown again after being knocked down.
+function Lantern.GetKnockLockout(self: Lantern): number
+	return math.max(0, self.knockUntil - os.clock())
+end
+
+-- Seconds before a throw is allowed (the longer of the two above).
+function Lantern.GetThrowLockout(self: Lantern): number
+	return math.max(self:GetGrabCooldown(), self:GetKnockLockout())
+end
+
+-- The Moth's movement cooldown for the HUD: (seconds left, full length). The wing burst's cooldown
+-- while it runs, else the knocked-down lockout, else the no-throw time after it came back.
+-- (0, 1) when ready.
 function Lantern.GetMothCooldown(self: Lantern): (number, number)
-	-- A wing flight can't start again until the current one is over AND its cooldown has passed.
+	-- A wing burst can't start again until the current one is over AND its cooldown has passed.
 	local since = os.clock() - self.lastWingFlight
 	local total = math.max(Config.WingFlightCooldown, Config.WingFlightTime)
 	if since < total then
 		return total - since, total
+	end
+	local knock = self:GetKnockLockout()
+	if knock > 0 then
+		return knock, Config.LanternKnockLockout
 	end
 	local grab = self:GetGrabCooldown()
 	if grab > 0 then
@@ -492,12 +492,24 @@ function Lantern.GetCharge(self: Lantern): number
 	return math.clamp((os.clock() - self.chargeStart) / math.max(Config.LanternChargeTime, 1e-3), 0, 1)
 end
 
+-- 0..1: how much of the hanging time is left (0 unless it's hanging).
+function Lantern.GetLightLeft(self: Lantern): number
+	if self.state ~= "Suspended" then
+		return 0
+	end
+	return math.clamp((self.suspendedUntil - os.clock()) / math.max(Config.LanternSuspendTime, 1e-3), 0, 1)
+end
+
+-- True while you're inside your own hanging lantern's light (where holding Space flies).
+function Lantern.InsideLight(self: Lantern): boolean
+	return self:_insideLight()
+end
+
 function Lantern.GetLastInfo(self: Lantern): string
 	return self.lastInfo
 end
 
--- Why the last flight ended: "done", "released", "stamina", "arrived", "timeout", "lost", "lantern",
--- "grab", "m1", "cancel".
+-- Why the last flight ended: "done", "released", "stamina", "left_light", "lantern", "m1", "cancel".
 function Lantern.GetLastFlightEnd(self: Lantern): string
 	return self.lastFlightEnd
 end
@@ -548,6 +560,7 @@ end
 
 -- INPUT ------------------------------------------------------------------------
 
+-- Ctrl pressed.
 function Lantern.Press(self: Lantern)
 	if self.pressing then
 		return
@@ -555,15 +568,13 @@ function Lantern.Press(self: Lantern)
 	self.pressing = true
 	self.pressAt = os.clock()
 	self.holdHandled = false
-	self.pressSuspended = false
-	-- In the air: the press itself suspends it (a hold can still turn into a flight after).
-	if self:IsMoth() and self:_isAirborne() and self.canSuspend then
-		self:Suspend()
-		self.pressSuspended = true
+	-- With the lantern out, Ctrl calls it back at once (the rest of this press does nothing).
+	if self:IsMoth() and self:Recall() then
+		self.holdHandled = true
 	end
 end
 
--- Release (also call on focus loss so the key can't stick).
+-- Ctrl released (also call on focus loss so the key can't stick).
 function Lantern.Release(self: Lantern)
 	if not self.pressing then
 		return
@@ -571,9 +582,7 @@ function Lantern.Release(self: Lantern)
 	self.pressing = false
 	if self.state == "Charging" then
 		self:_throw(nil)
-	elseif self.flight == "Free" or self.flight == "Tag" then
-		self:_endFlight("released")
-	elseif not self.holdHandled and not self.pressSuspended then
+	elseif not self.holdHandled then
 		self:_tap()
 	end
 	self.holdHandled = true
@@ -616,10 +625,8 @@ function Lantern._tap(self: Lantern)
 	end
 	if self.state == "Hip" then
 		self:WingFlight()
-	elseif self.state == "Suspended" then
-		self.lastInfo = "hanging: hold Ctrl inside its light to fly"
-	else
-		self.lastInfo = "no lantern: go grab it"
+	elseif self.state == "Returning" then
+		self.lastInfo = "on its way back"
 	end
 end
 
@@ -629,20 +636,22 @@ function Lantern._hold(self: Lantern)
 		self.lastInfo = "not a Moth"
 		return
 	end
-	if self.state == "Hip" then
-		if self.flight then
-			return
-		end
-		local cooldown = self:GetGrabCooldown()
-		if cooldown > 0 then
-			self.lastInfo = string.format("just grabbed it: throw in %.1fs", cooldown)
-			return
-		end
-		self:_startCharge()
-		self:_faceAim()
-	elseif not self.flight then
-		self:_tryStartFlight()
+	if self.state ~= "Hip" or self.flight then
+		return
 	end
+	local knock = self:GetKnockLockout()
+	if knock > 0 then
+		self.lastInfo = string.format("knocked down: throw in %.1fs", knock)
+		Sfx.Play(self.character, "Denied")
+		return
+	end
+	local cooldown = self:GetGrabCooldown()
+	if cooldown > 0 then
+		self.lastInfo = string.format("just caught it: throw in %.1fs", cooldown)
+		return
+	end
+	self:_startCharge()
+	self:_faceAim()
 end
 
 -- LANTERN ------------------------------------------------------------------------
@@ -656,7 +665,6 @@ function Lantern._startCharge(self: Lantern)
 	self:_play("Charge")
 	self:_showPreview(true)
 end
-
 
 function Lantern._throwSpeed(power: number): number
 	return Config.LanternThrowSpeedMin + (Config.LanternThrowSpeedMax - Config.LanternThrowSpeedMin) * power
@@ -734,9 +742,10 @@ function Lantern._crosshairPoint(self: Lantern): (Vector3, boolean)
 	return start + dir * reach, false
 end
 
--- The throw for a given charge: (origin, launch velocity, speed). It passes through the crosshair
--- point, or the point that far along the line from the origin to it if it's farther than the range.
-function Lantern._plan(self: Lantern, power: number): (Vector3, Vector3, number)
+-- The throw for a given charge: (origin, launch velocity, speed, stop time). It passes through the
+-- crosshair point, or the point that far along the line from the origin to it if it's farther than
+-- the range, and stops there (stop time = when it gets there) unless it meets something first.
+function Lantern._plan(self: Lantern, power: number): (Vector3, Vector3, number, number)
 	local origin = self:_aimOrigin()
 	local point = self:_crosshairPoint()
 	local range = Lantern._throwRange(power)
@@ -747,7 +756,21 @@ function Lantern._plan(self: Lantern, power: number): (Vector3, Vector3, number)
 		point = origin + flatten(self.root.CFrame.LookVector).Unit * 5
 	end
 	local speed = Lantern._throwSpeed(power)
-	return origin, LanternPhysics.solve(origin, point, speed, LanternPhysics.gravity()), speed
+	local v0 = LanternPhysics.solve(origin, point, speed, LanternPhysics.gravity())
+	return origin, v0, speed, Lantern._stopTime(origin, v0, point)
+end
+
+-- When a throw launched at v0 from origin gets to `point` (by its flat distance; straight up / down
+-- by height), capped at LanternMaxFlightTime.
+function Lantern._stopTime(origin: Vector3, v0: Vector3, point: Vector3): number
+	local flatV = Vector3.new(v0.X, 0, v0.Z).Magnitude
+	local t
+	if flatV > 1 then
+		t = Vector3.new(point.X - origin.X, 0, point.Z - origin.Z).Magnitude / flatV
+	else
+		t = (point - origin).Magnitude / math.max(v0.Magnitude, 1)
+	end
+	return math.clamp(t, LanternPhysics.STEP, Config.LanternMaxFlightTime)
 end
 
 -- Throws at the crosshair (or along `direction`, for tests). `charge` 0..1 overrides the hold.
@@ -756,15 +779,17 @@ function Lantern._throw(self: Lantern, direction: Vector3?, charge: number?)
 		return
 	end
 	local power = charge or self:GetCharge()
-	local origin, v0, speed = self:_plan(power)
+	local origin, v0, speed, stop = self:_plan(power)
 	if direction then
 		local dir = if direction.Magnitude > 1e-3 then direction.Unit else -Vector3.zAxis
 		v0 = dir * speed
+		stop = math.min(Lantern._throwRange(power) / speed, Config.LanternMaxFlightTime)
 	end
 	self:_showPreview(false)
 	self.throwOrigin = origin
 	self.throwVelocity = v0
 	self.throwGravity = LanternPhysics.gravity()
+	self.throwStop = stop
 	self.flightTime = 0
 	self.stepCarry = 0
 	self.casts = nil
@@ -775,10 +800,6 @@ function Lantern._throw(self: Lantern, direction: Vector3?, charge: number?)
 	self.state = "Thrown"
 	self.resting = false
 	self.throwAt = os.clock()
-	self.canSuspend = true
-	self.hitThisThrow = false
-	self.burstDone = false
-	table.clear(self.burstTagged)
 	self.throws += 1
 	self.lastInfo = string.format("thrown (%d%% power)", math.floor(power * 100 + 0.5))
 	self:_stop("Charge")
@@ -891,7 +912,8 @@ function Lantern._releaseFacing(self: Lantern, delay: number?)
 	end
 end
 
--- While charging: the exact predicted flight for the current charge (same steps as the real throw).
+-- While charging: the exact predicted flight for the current charge (same steps as the real throw),
+-- and the ring where it will hang (flush on a surface, or facing you in the air).
 function Lantern._updatePreview(self: Lantern)
 	self:_showPreview(true)
 	local ring = self.previewEnd
@@ -899,8 +921,8 @@ function Lantern._updatePreview(self: Lantern)
 		return
 	end
 	self:_faceAim()
-	local origin, v0 = self:_plan(self:GetCharge())
-	local points, hit = LanternPhysics.predict(origin, v0, LanternPhysics.gravity(), self:_flightCasts(), Config.LanternMaxFlightTime)
+	local origin, v0, _, stop = self:_plan(self:GetCharge())
+	local points, hit = LanternPhysics.predict(origin, v0, LanternPhysics.gravity(), self:_flightCasts(), stop)
 
 	-- Dots every PREVIEW_SPACING studs along the path.
 	local used = 0
@@ -926,21 +948,16 @@ function Lantern._updatePreview(self: Lantern)
 		self.previewBalls[i].Transparency = 1
 	end
 
-	-- The ring: flush on the surface it lands on, or facing you on the person it would hit.
-	if hit then
-		local onSomeone = hit.kind == "Character"
-		local normal = if onSomeone then (origin - hit.position) else hit.normal
-		local contact = if onSomeone then hit.position else hit.position - hit.normal * LanternPhysics.WORLD_RADIUS
-		ring.CFrame = cylinderSurfaceCFrame(contact, normal, ring.Size.X)
-		ring.Color = if onSomeone then PREVIEW_HIT_COLOR else PREVIEW_COLOR
-		ring.Transparency = 0.3
+	if hit and hit.kind == "World" then
+		ring.CFrame = cylinderSurfaceCFrame(hit.position - hit.normal * LanternPhysics.WORLD_RADIUS, hit.normal, ring.Size.X)
 	else
-		ring.Transparency = 1
+		local at = if hit then hit.position else points[#points]
+		ring.CFrame = cylinderSurfaceCFrame(at, origin - at, ring.Size.X)
 	end
+	ring.Transparency = 0.3
 end
 
-
--- Test helper: aim at this world point instead of the mouse cursor (nil = the cursor again).
+-- Test helper: aim at this world point instead of the crosshair (nil = the crosshair again).
 function Lantern.SetAimForTest(self: Lantern, point: Vector3?)
 	self.aimPointForTest = point
 end
@@ -953,43 +970,54 @@ function Lantern.ThrowForTest(self: Lantern, direction: Vector3?, charge: number
 	self:_throw(direction, charge)
 end
 
-function Lantern.Suspend(self: Lantern): boolean
-	if not self:_isAirborne() or not self.canSuspend then
+-- Stops and hangs at `position`, lit, for LanternSuspendTime.
+function Lantern._hang(self: Lantern, position: Vector3)
+	self.state = "Suspended"
+	self.position = position
+	self.lanternVelocity = Vector3.zero
+	self.resting = false
+	self.suspendedUntil = os.clock() + Config.LanternSuspendTime
+	self.lastLanding = position
+	self.lastInfo = "hanging: hold Space in the air inside its light to fly"
+	LanternFx.burst(position)
+	Sfx.Play(self.character, "LanternSuspend", { at = position })
+	self:_announce()
+end
+
+-- Ctrl with the lantern out: it flies back to your hand. Returns true if it was out.
+function Lantern.Recall(self: Lantern): boolean
+	if self.state ~= "Thrown" and self.state ~= "Suspended" and self.state ~= "Dropped" then
 		return false
 	end
-	self.state = "Suspended"
+	self.state = "Returning"
+	self.resting = false
 	self.lanternVelocity = Vector3.zero
-	self.canSuspend = false
-	-- A hung lantern doesn't flash when it later drops and lands.
-	self.burstDone = true
-	self.suspendedUntil = os.clock() + Config.LanternSuspendTime
-	self.lastInfo = "suspended"
-	self:_play("Suspend")
+	self.lastInfo = "recalled"
+	Sfx.Play(self.character, "LanternGrab")
 	self:_announce()
 	return true
 end
 
--- Back on the hip (touched it, or it fell out of the world).
+-- Someone else's attack touched it: it falls, and it can't be thrown for a while.
+function Lantern._knocked(self: Lantern)
+	self.knockUntil = os.clock() + Config.LanternKnockLockout
+	if self.state == "Thrown" or self.state == "Suspended" then
+		self.lanternVelocity = Vector3.new(0, -4, 0)
+		self:_drop(false)
+		self.lastInfo = "knocked down"
+	end
+end
+
+-- Back on the hip (caught it, picked it up, or it fell out of the world).
 function Lantern._grab(self: Lantern, reason: string?)
-	local burst = self.flight ~= nil and reason == nil
 	self.state = "Hip"
 	self.resting = false
 	self.lanternVelocity = Vector3.zero
 	self.grabbedAt = if reason then -math.huge else os.clock()
-	self.lastInfo = reason or "grabbed"
+	self.lastInfo = reason or "caught"
 	-- The copy stays on the hip until the server has the lantern welded there again.
 	self.mountWaitUntil = os.clock() + MOUNT_WAIT
 	self:_announce()
-	if burst and self.flight == "Tag" then
-		-- Grabbed on the way to a tagged opponent: keep flying to them, faster.
-		self.speed = math.min(self.speed + Config.LanternGrabBurst, Config.LanternGrabBurstMax)
-		self.lastFlightEnd = "grab (kept flying)"
-	elseif burst then
-		local v = self.lastVelocity
-		local dir = if v.Magnitude > 1e-3 then v.Unit else self.heading
-		local speed = math.min(v.Magnitude + Config.LanternGrabBurst, Config.LanternGrabBurstMax)
-		self:_endFlight("grab", dir * speed)
-	end
 end
 
 function Lantern._isAirborne(self: Lantern): boolean
@@ -1110,8 +1138,10 @@ end
 
 function Lantern._announce(self: Lantern)
 	self.character:SetAttribute("LanternState", self.state)
-	-- The flying lantern hums while it's thrown (follows the lantern; others hear it on theirs).
-	if self.state == "Thrown" then
+	-- The flying lantern hums while it's thrown or coming back (follows the lantern; others hear it
+	-- on theirs).
+	local flying = self.state == "Thrown" or self.state == "Returning"
+	if flying then
 		local copy = self.localCopy
 		local core: Instance? = if copy then copy.PrimaryPart else nil
 		Sfx.Loop(self.character, "LanternTravel", true, { parent = core, on = "Lantern" })
@@ -1121,12 +1151,13 @@ function Lantern._announce(self: Lantern)
 	local r = remote("LanternState")
 	if r and r:IsA("RemoteEvent") then
 		if self.state == "Thrown" then
-			-- Everyone else replays the arc from these (LanternViewer).
+			-- Everyone else replays the arc from these (LanternViewer), up to where it stops.
 			r:FireServer(self.state, self.position, {
 				origin = self.throwOrigin,
 				velocity = self.throwVelocity,
 				gravity = self.throwGravity,
 				start = Workspace:GetServerTimeNow(),
+				stop = self.throwStop,
 			})
 		else
 			r:FireServer(self.state, self.position)
@@ -1164,62 +1195,6 @@ end
 
 -- THE LANTERN OUT OF HAND ------------------------------------------------------------
 
--- The first impact of a throw: flash, and tag opponents in LanternBurstRadius the flash can see.
--- `direct` (someone hit directly) is already tagged and skipped.
-function Lantern._burst(self: Lantern, at: Vector3, direct: Model?)
-	if self.burstDone then
-		return
-	end
-	self.burstDone = true
-	LanternFx.burst(at)
-	Sfx.Play(self.character, "LanternImpact", { at = at })
-	local r = remote("LanternBurst")
-	if r and r:IsA("RemoteEvent") then
-		r:FireServer(at)
-	end
-	local casts = self:_flightCasts()
-	for _, who in LanternPhysics.characters(self.character) do
-		if who ~= direct then
-			local humanoid = who:FindFirstChildOfClass("Humanoid")
-			local root = who:FindFirstChild("HumanoidRootPart")
-			if humanoid and humanoid.Health > 0 and root and root:IsA("BasePart") then
-				local d = (root.Position - at).Magnitude
-				if d <= Config.LanternBurstRadius and LanternPhysics.clearLine(at, root.Position, casts) then
-					table.insert(self.burstTagged, who)
-					self:_tag(who, root.Position, "Burst")
-				end
-			end
-		end
-	end
-end
-
--- Tags someone (locally right away, the server checks and marks them for everyone).
-function Lantern._tag(self: Lantern, target: Model, at: Vector3, kind: "Direct" | "Burst")
-	-- A direct hit always becomes the flight target; a burst tag only if nobody is tagged yet.
-	if kind == "Direct" or not self:GetTagTarget() then
-		self.tagTarget = target
-		self.tagUntil = os.clock() + Config.LanternTagTime
-	end
-	local r = remote("LanternHit")
-	if r and r:IsA("RemoteEvent") then
-		r:FireServer(target, at, kind)
-	end
-end
-
--- A direct hit: damage + tag (server), then it bounces back toward you and drops.
-function Lantern._onHitCharacter(self: Lantern, target: Model, at: Vector3)
-	self.hitThisThrow = true
-	Sfx.Play(self.character, "LanternHit", { at = at })
-	self.lastInfo = "hit " .. target.Name
-	self:_tag(target, at, "Direct")
-	self:_burst(at, target)
-	local back = flatten(self.root.Position - at)
-	back = if back.Magnitude > 1e-3 then back.Unit else Vector3.zero
-	self.position = at + back * 0.8
-	self.lanternVelocity = back * Config.LanternBounceBack + Vector3.new(0, Config.LanternBounceUp, 0)
-	self:_drop(false)
-end
-
 -- Now loose: falling (resting = false) or lying still (resting = true).
 function Lantern._drop(self: Lantern, resting: boolean)
 	local changed = self.state ~= "Dropped" or self.resting ~= resting
@@ -1227,7 +1202,6 @@ function Lantern._drop(self: Lantern, resting: boolean)
 	self.resting = resting
 	if resting then
 		self.lanternVelocity = Vector3.zero
-		self.lastLanding = self.position
 	end
 	if changed then
 		self:_announce()
@@ -1253,57 +1227,66 @@ function Lantern._touchWorld(self: Lantern, hit: LanternPhysics.Hit)
 	self:_drop(v.Magnitude < 1.5)
 end
 
--- One fixed step of a throw. Returns false once the throw is over.
+-- One fixed step of a throw. Returns false once the throw is over (it hangs).
 function Lantern._stepThrow(self: Lantern, dt: number): boolean
-	if self.flightTime == 0 then
-		-- Point blank: someone between your body and where the throw leaves the hand is hit.
-		local casts = self:_flightCasts()
-		local from = self.root.Position + Vector3.new(0, 0.5, 0)
-		if casts.characters then
-			local close = LanternPhysics.cast(from, self.throwOrigin - from, { world = casts.world, characters = casts.characters })
-			if close and close.kind == "Character" and close.character then
-				self.lanternVelocity = self.throwVelocity
-				self:_onHitCharacter(close.character, close.position)
-				return false
-			end
-		end
-	end
-	local t = self.flightTime + dt
+	local t = math.min(self.flightTime + dt, self.throwStop)
 	local pos, vel = LanternPhysics.at(self.throwOrigin, self.throwVelocity, self.throwGravity, t)
 	local hit = LanternPhysics.cast(self.position, pos - self.position, self:_flightCasts())
 	if hit then
-		self.lanternVelocity = vel
-		if hit.kind == "Character" and hit.character then
-			self:_onHitCharacter(hit.character, hit.position)
-		else
-			self:_burst(hit.position, nil)
-			self:_touchWorld(hit)
-		end
+		-- Stops against whatever it meets and hangs just off it (a person: on the side it came from).
+		local away = if hit.kind == "Character" then self.position - hit.position else hit.normal
+		away = if away.Magnitude > 1e-3 then away.Unit else Vector3.yAxis
+		self:_hang(hit.position + away * HANG_OFFSET)
 		return false
 	end
 	self.flightTime = t
 	self.position = pos
 	self.lanternVelocity = vel
-	if t >= Config.LanternMaxFlightTime then
-		self:_drop(false)
+	if t >= self.throwStop then
+		self:_hang(pos)
 		return false
 	end
 	return true
 end
 
--- One fixed step of a lantern falling freely (dropped, bounced, or out of flight time).
+-- One fixed step of a lantern falling freely (knocked down).
 function Lantern._stepFall(self: Lantern, dt: number)
 	self.lanternVelocity -= Vector3.new(0, Workspace.Gravity * dt, 0)
 	local delta = self.lanternVelocity * dt
 	local casts = self:_flightCasts()
 	local hit = LanternPhysics.cast(self.position, delta, { world = casts.world, characters = nil })
 	if hit then
-		if not self.burstDone then
-			self:_burst(hit.position, nil)
-		end
 		self:_touchWorld(hit)
 	else
 		self.position += delta
+	end
+end
+
+-- Flying back to the hand, straight through everything.
+function Lantern._stepReturn(self: Lantern, dt: number)
+	local to = self:_handPosition() - self.position
+	local step = Config.LanternRecallSpeed * dt
+	if to.Magnitude <= math.max(step, RECALL_ARRIVE) then
+		self:_grab()
+		return
+	end
+	self.lanternVelocity = to.Unit * Config.LanternRecallSpeed
+	self.position += to.Unit * step
+end
+
+-- The server says someone knocked it (KnockId changed on the lantern).
+function Lantern._checkKnock(self: Lantern)
+	local model = self:_serverModel()
+	if not model then
+		return
+	end
+	local id = model:GetAttribute("KnockId")
+	local value = if typeof(id) == "number" then id else 0
+	if self.knockSeen == nil then
+		self.knockSeen = value
+	elseif value ~= self.knockSeen then
+		self.knockSeen = value
+		self:_knocked()
 	end
 end
 
@@ -1311,8 +1294,14 @@ function Lantern._stepLantern(self: Lantern, dt: number)
 	local now = os.clock()
 	if self.state == "Suspended" then
 		if now >= self.suspendedUntil then
-			self.lanternVelocity = Vector3.zero
-			self:_drop(false)
+			self:Recall()
+			self.lastInfo = "the light went out: coming back"
+		end
+	elseif self.state == "Returning" then
+		self:_stepReturn(dt)
+		if self.state == "Hip" then
+			self:_updateCopy()
+			return
 		end
 	elseif self:_isAirborne() then
 		self.stepCarry = math.min(self.stepCarry + dt, LanternPhysics.STEP * MAX_STEPS_PER_FRAME)
@@ -1331,7 +1320,8 @@ function Lantern._stepLantern(self: Lantern, dt: number)
 		end
 	end
 
-	if now - self.throwAt >= Config.LanternRegrabDelay then
+	-- Lying on the floor (knocked down): walk into it to pick it up.
+	if self.state == "Dropped" and now - self.throwAt >= Config.LanternRegrabDelay then
 		if (self.root.Position - self.position).Magnitude <= Config.LanternGrabRadius then
 			self:_grab()
 			self:_updateCopy()
@@ -1341,7 +1331,6 @@ function Lantern._stepLantern(self: Lantern, dt: number)
 	self:_updateCopy()
 	self:_sync()
 end
-
 
 -- FLIGHT ---------------------------------------------------------------------------
 
@@ -1410,52 +1399,33 @@ function Lantern.WingFlight(self: Lantern, direction: Vector3?): boolean
 	return true
 end
 
-function Lantern._tagValid(self: Lantern): (Model?, BasePart?)
-	local target = self:GetTagTarget()
-	if not target then
-		return nil, nil
-	end
-	local humanoid = target:FindFirstChildOfClass("Humanoid")
-	local targetRoot = target:FindFirstChild("HumanoidRootPart")
-	if not humanoid or humanoid.Health <= 0 or not targetRoot or not targetRoot:IsA("BasePart") then
-		return nil, nil
-	end
-	return target, targetRoot
-end
-
 function Lantern._insideLight(self: Lantern): boolean
 	return self.state == "Suspended" and (self.root.Position - self.position).Magnitude <= Config.LanternLightRadius
 end
 
--- Hold with the lantern away: tag flight, or free flight inside a hanging lantern's light.
-function Lantern._tryStartFlight(self: Lantern)
-	local _, targetRoot = self:_tagValid()
-	local kind: FlightKind
-	local goal: Vector3
-	if targetRoot then
-		kind = "Tag"
-		goal = targetRoot.Position
-	elseif self:_insideLight() then
-		kind = "Free"
-		goal = self.root.Position + cameraLook(self.root)
-	else
-		self.lastInfo = if self.state == "Suspended" then "outside the lantern's light" else "nothing to fly to"
+-- Space held in the air inside your own light: take off (once per press).
+function Lantern._checkSpace(self: Lantern)
+	local held = self.motor:IsJumpHeld()
+	local now = os.clock()
+	if held and not self.jumpWasHeld then
+		self.jumpAt = now
+		self.flyTried = false
+	end
+	self.jumpWasHeld = held
+	if not held or self.flyTried or self.flight or now - self.jumpAt < Config.FlyHoldDelay then
 		return
 	end
+	if not self:IsMoth() or self.motor:GetMode() ~= "Air" or not self:_insideLight() then
+		return
+	end
+	self.flyTried = true
 	if not self:_canFly(Config.FlyStartStamina) then
 		return
 	end
-	local toGoal = goal - self.root.Position
-	local heading = if toGoal.Magnitude > 1e-3 then toGoal.Unit else cameraLook(self.root)
+	local heading = cameraLook(self.root)
 	local current = self.root.AssemblyLinearVelocity
-	if kind == "Tag" then
-		self.targetLastPos = (targetRoot :: BasePart).Position
-		self.targetVel = (targetRoot :: BasePart).AssemblyLinearVelocity
-		self:_beginFlight(kind, heading, math.max(current:Dot(heading), 20))
-	else
-		self:_beginFlight(kind, heading, math.max(current:Dot(heading), Config.FlySlowSpeed))
-	end
-	self.lastInfo = "flying (" .. kind .. ")"
+	self:_beginFlight("Free", heading, math.max(current:Dot(heading), Config.FlySlowSpeed))
+	self.lastInfo = "flying"
 end
 
 function Lantern._endFlight(self: Lantern, reason: string, keep: Vector3?)
@@ -1519,7 +1489,6 @@ function Lantern._stepFlight(self: Lantern, dt: number)
 		self:_endFlight("cancel")
 		return
 	end
-	local myPos = self.root.Position
 
 	if kind == "Wings" then
 		local duration = Config.WingFlightTime
@@ -1543,56 +1512,23 @@ function Lantern._stepFlight(self: Lantern, dt: number)
 		return
 	end
 
-	if not self.stamina:Drain(Config.FlyDrain * dt) then
-		self.lastInfo = "out of stamina"
-		self:_endFlight("stamina")
-		return
-	end
-
-	if kind == "Tag" then
-		local target, targetRoot = self:_tagValid()
-		if not target or not targetRoot then
-			self:_endFlight("lost")
-			return
-		end
-		if os.clock() - self.flightStart > Config.TagFlyMaxTime then
-			self:_endFlight("timeout")
-			return
-		end
-		if dt > 0 then
-			local measured = (targetRoot.Position - self.targetLastPos) / dt
-			self.targetVel = self.targetVel:Lerp(measured, TARGET_VEL_SMOOTHING)
-		end
-		self.targetLastPos = targetRoot.Position
-		local distance = (targetRoot.Position - myPos).Magnitude
-		if distance <= Config.TagFlyStopDistance + TAG_ARRIVE_SLACK then
-			self:_endFlight("arrived", self.targetVel)
-			return
-		end
-		local lead = math.min(distance / math.max(self.speed, 1), TAG_MAX_LEAD)
-		local toAim = targetRoot.Position + self.targetVel * lead - myPos
-		local desired = if toAim.Magnitude > 1e-3 then toAim.Unit else self.heading
-		self.heading = turnTowards(self.heading, desired, math.rad(Config.TagFlyTurnRate) * dt)
-		-- (A lantern grabbed on the way can push it above TagFlySpeed.)
-		local closing = math.min(self.speed + Config.TagFlySpeed * 8 * dt, math.max(Config.TagFlySpeed, self.speed))
-		closing = math.min(closing, (distance - Config.TagFlyStopDistance) * TAG_BRAKE + TAG_MIN_CLOSING)
-		self.speed = closing
-		local v = self:_slide(self.targetVel + self.heading * closing, dt)
-		self.lastVelocity = v
-		self.velocity.VectorVelocity = v
-		self:_face(targetRoot.Position - myPos)
-		return
-	end
-
-	-- Free flight inside the light.
+	-- Free flight inside your light.
 	if self.state ~= "Suspended" then
 		self:_endFlight("lantern")
 		return
 	end
-	local fromCenter = myPos - self.position
-	if fromCenter.Magnitude > Config.LanternLightRadius then
+	if not self.motor:IsJumpHeld() then
+		self:_endFlight("released")
+		return
+	end
+	if (self.root.Position - self.position).Magnitude > Config.LanternLightRadius then
 		self.lastInfo = "left the lantern's light"
 		self:_endFlight("left_light")
+		return
+	end
+	if not self.stamina:Drain(Config.FlyDrain * dt) then
+		self.lastInfo = "out of stamina"
+		self:_endFlight("stamina")
 		return
 	end
 	local desired = cameraLook(self.root)
@@ -1607,22 +1543,11 @@ function Lantern._stepFlight(self: Lantern, dt: number)
 		self.speed = math.max(self.speed - Config.FlySpeedChange * dt, targetSpeed)
 	end
 	self.heading = turnTowards(self.heading, desired, math.rad(self:GetTurnRate()) * dt)
-	local v = self.heading * self.speed
-	-- Can't leave the light: at the edge, the outward part of the velocity is removed.
-	fromCenter = myPos - self.position
-	if fromCenter.Magnitude >= Config.LanternLightRadius - 1 and fromCenter.Magnitude > 1e-3 then
-		local outward = fromCenter.Unit
-		local out = v:Dot(outward)
-		if out > 0 then
-			v -= outward * out
-		end
-	end
-	v = self:_slide(v, dt)
+	local v = self:_slide(self.heading * self.speed, dt)
 	self.lastVelocity = v
 	self.velocity.VectorVelocity = v
 	self:_face(self.heading)
 end
-
 
 function Lantern._renderStep(self: Lantern, dt: number)
 	if self.destroyed then
@@ -1632,6 +1557,8 @@ function Lantern._renderStep(self: Lantern, dt: number)
 		self.holdHandled = true
 		self:_hold()
 	end
+	self:_checkKnock()
+	self:_checkSpace()
 	if self.state == "Charging" then
 		self:_updatePreview()
 		self:_updateCopy()
@@ -1680,17 +1607,12 @@ end
 
 -- Test helpers ---------------------------------------------------------------------
 
--- Puts the lantern back on the hip right away (no cooldown).
+-- Puts the lantern back on the hip right away (no cooldowns).
 function Lantern.ResetForTest(self: Lantern)
 	self:_endFlight("cancel")
 	self.pressing = false
 	self.holdHandled = true
 	self.character:SetAttribute("LanternCharging", nil)
-	self.tagTarget = nil
-	self.tagUntil = 0
-	self.burstDone = false
-	self.hitThisThrow = false
-	table.clear(self.burstTagged)
 	self:_showPreview(false)
 	self:_releaseFacing()
 	self:_stop("Charge")
@@ -1701,17 +1623,17 @@ function Lantern.ResetForTest(self: Lantern)
 		self:_announce()
 	end
 	self.grabbedAt = -math.huge
+	self.knockUntil = 0
 	self.lastWingFlight = -math.huge
 end
 
+-- Puts the lantern at `position` in `state` (Suspended = hanging with a fresh timer).
 function Lantern.PlaceForTest(self: Lantern, position: Vector3, state: LanternState)
 	self.position = position
 	self.lanternVelocity = Vector3.zero
 	self.throwAt = os.clock()
 	self.state = state
 	self.resting = state == "Dropped"
-	self.canSuspend = false
-	self.burstDone = true
 	if state == "Suspended" then
 		self.suspendedUntil = os.clock() + Config.LanternSuspendTime
 	end
@@ -1719,29 +1641,21 @@ function Lantern.PlaceForTest(self: Lantern, position: Vector3, state: LanternSt
 	self:_announce()
 end
 
--- Did this throw flash yet (first impact)?
-function Lantern.HasBurst(self: Lantern): boolean
-	return self.burstDone
-end
-
--- Who the last burst tagged (tests / debug).
-function Lantern.GetBurstTagged(self: Lantern): { Model }
-	return table.clone(self.burstTagged)
-end
-
--- Where the last throw came to rest (nil if it hasn't yet).
+-- Where the last throw stopped and hung (nil until it does).
 function Lantern.GetLastLanding(self: Lantern): Vector3?
 	return self.lastLanding
 end
 
--- The throw preview's predicted landing for a charge, without charging (tests).
-function Lantern.PredictForTest(self: Lantern, power: number): (Vector3?, string?)
-	local origin, v0 = self:_plan(power)
-	local _, hit = LanternPhysics.predict(origin, v0, LanternPhysics.gravity(), self:_flightCasts(), Config.LanternMaxFlightTime)
+-- Where the preview says a throw with this charge will hang, without charging (tests).
+function Lantern.PredictForTest(self: Lantern, power: number): Vector3
+	local origin, v0, _, stop = self:_plan(power)
+	local points, hit = LanternPhysics.predict(origin, v0, LanternPhysics.gravity(), self:_flightCasts(), stop)
 	if hit then
-		return hit.position, hit.kind
+		local away = if hit.kind == "Character" then points[math.max(#points - 1, 1)] - hit.position else hit.normal
+		away = if away.Magnitude > 1e-3 then away.Unit else Vector3.yAxis
+		return hit.position + away * HANG_OFFSET
 	end
-	return nil, nil
+	return points[#points]
 end
 
 return Lantern

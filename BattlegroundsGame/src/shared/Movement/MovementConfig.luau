@@ -286,25 +286,22 @@ local MovementConfig = {
 	DefaultRace = "Moth",
 
 	-- MOTH: LANTERN + WINGS (Left Ctrl) --------------------------------------------
-	-- The lantern hangs on the hip. Left Ctrl:
-	--   TAP (lantern on the hip)  -> WING FLIGHT: spread the wings and fly ~WingFlightDistance studs
+	-- The lantern hangs on the hip (docs/MoveData.md, "Moth"). Left Ctrl:
+	--   TAP (lantern on the hip)  -> WING BURST: spread the wings and fly ~WingFlightDistance studs
 	--                                where the camera looks, then keep some of the speed. Costs a big
 	--                                chunk of stamina. M1 cancels it (and throws an M1 right away).
 	--   HOLD (lantern on the hip) -> take the lantern in hand and charge the throw; RELEASE throws it
-	--                                at the crosshair. Longer hold = faster, farther throw.
-	--   PRESS while it's in the air -> it stops and hangs there (once per throw) for
-	--                                LanternSuspendTime, showing its light radius. Then it drops.
-	--   HOLD (lantern not on you) -> fly: straight to an opponent the lantern hit (tagged), or freely
-	--                                inside a hanging lantern's light (you can't leave the light).
-	--                                Letting go or M1 ends it.
-	-- Touching the lantern grabs it back onto the hip (walking or flying). Grabbing it while flying
-	-- gives a burst of speed. After a grab it can't be thrown for LanternGrabCooldown.
-	-- A thrown lantern that hits someone: LanternDamage, tags them for LanternTagTime (they're
-	-- marked for everyone to see), and it bounces back a little toward you and drops. Where it first
-	-- lands (or hits someone) it flashes: opponents within LanternBurstRadius that the flash can SEE
-	-- (nothing solid in between) are tagged too, but take no damage.
+	--                                at the crosshair. Longer hold = faster, farther throw. No damage.
+	--   PRESS (lantern out)       -> RECALL: it flies back to your hand.
+	-- A throw stops at the first thing it meets, or at the point it was aimed at, and HANGS there for
+	-- LanternSuspendTime, lighting LanternLightRadius studs around it; then it flies back by itself.
+	-- FLIGHT: hold Space in the air inside your own light (FlyHoldDelay after pressing it) to fly
+	-- where the camera looks. It ends when you let go, leave the light, burn out, or press M1.
+	-- Any attack or projectile of someone else that touches the lantern while it's out knocks it
+	-- down (it falls and lies there: walk into it or recall it) and it can't be thrown for
+	-- LanternKnockLockout.
 	-- The throw is a real projectile (LanternPhysics): it goes through the point under the crosshair
-	-- (or toward it, as far as the charge's range), then keeps flying until it hits something.
+	-- (or toward it, as far as the charge's range).
 	LanternTapTime = 0.2, -- released sooner than this = tap; held longer = hold (seconds)
 	LanternChargeTime = 0.8, -- extra hold time for a full-power throw (seconds)
 	LanternThrowSpeedMin = 50, -- launch speed at no charge (studs/s)
@@ -312,42 +309,33 @@ local MovementConfig = {
 	LanternThrowRangeMin = 35, -- how far along the crosshair it aims at no charge (studs)
 	LanternThrowRangeMax = 90, -- ...at full charge
 	LanternThrowGravity = 0.35, -- share of normal gravity while flying out
-	LanternMaxFlightTime = 3, -- after this long in the air it just drops (seconds)
-	LanternDamage = 3,
-	LanternTagTime = 3, -- seconds a hit opponent stays tagged
-	LanternBurstRadius = 10, -- the impact flash tags opponents this close that it can see (studs)
-	LanternBounceBack = 14, -- after a hit: speed back toward you (studs/s)
-	LanternBounceUp = 22, -- ...and upward
-	LanternSuspendTime = 5, -- a suspended lantern hangs this long, then drops (seconds)
-	LanternLightRadius = 30, -- the suspended lantern's light (studs)
-	LanternGrabRadius = 4, -- walk / fly this close to grab it (studs)
-	LanternRegrabDelay = 0.35, -- can't grab it again this soon after throwing (seconds)
-	LanternGrabCooldown = 2, -- after a grab, no throwing for this long (seconds)
-	LanternGrabBurst = 25, -- grabbing it while flying adds this much speed (studs/s)
-	LanternGrabBurstMax = 75, -- ...up to this speed
-	-- Wing flight (tap).
-	WingFlightSpeedMultiplier = 1.2, -- initial fly speed relative to sprint speed (~31.2 studs/s)
-	WingFlightDistance = 13, -- distance covered over WingFlightTime at 1.2x sprint speed tapering to run speed
-	WingFlightTime = 0.45, -- seconds to cover that distance
+	LanternMaxFlightTime = 3, -- after this long in the air it hangs where it is (seconds)
+	LanternSuspendTime = 5, -- a hanging lantern lights the area this long, then comes back (seconds)
+	LanternLightRadius = 30, -- the hanging lantern's light (studs)
+	LanternRecallSpeed = 90, -- a recalled lantern flies back this fast (studs/s)
+	LanternGrabRadius = 4, -- walk this close to a lantern lying on the floor to pick it up (studs)
+	LanternRegrabDelay = 0.35, -- can't pick it up again this soon after throwing (seconds)
+	LanternGrabCooldown = 1, -- back in hand: no throwing for this long (seconds)
+	LanternKnockLockout = 6, -- knocked down by an attack: no throwing for this long (seconds)
+	-- Wing burst (tap).
+	WingFlightSpeedMultiplier = 2.0, -- initial fly speed relative to sprint speed (~52 studs/s)
+	WingFlightDistance = 20, -- distance covered over WingFlightTime, tapering to run speed
+	WingFlightTime = 0.5, -- seconds to cover that distance
 	WingFlightCost = 35, -- stamina
 	WingFlightKeep = 0.55, -- share of the flight speed you keep after it (momentum)
 	WingFlightCooldown = 0.4,
-	-- Flight inside the lantern's light (hold).
+	-- Flight inside your own light (hold Space in the air).
+	FlyHoldDelay = 0.15, -- Space held this long in the air before the flight starts (seconds)
 	FlyStartStamina = 8, -- need at least this much to take off
-	FlyDrain = 22, -- stamina per second
+	FlyDrain = 20, -- stamina per second
 	FlySlowSpeed = 18, -- cruising speed without W
 	FlyMaxSpeed = 55, -- top speed holding W
 	FlySpeedChange = 40, -- how fast the speed changes toward the target (studs/s per second)
 	FlySharpTurnRate = 300, -- degrees/s you can turn at FlySlowSpeed
 	FlyWideTurnRate = 60, -- degrees/s you can turn at FlyMaxSpeed
-	-- Flying straight to a tagged opponent (hold).
-	TagFlySpeed = 70,
-	TagFlyTurnRate = 720,
-	TagFlyStopDistance = 4.5, -- stops this far from their centre, moving with them
-	TagFlyMaxTime = 1.2,
 
 	-- DEBUG -----------------------------------------------------------------
-	-- On-screen speed counter for testing. Press F3 to hide or show it.
+	-- On-screen speed counter for testing. Settings menu (gear) > Debug hides or shows it.
 	-- Set to false before release.
 	DebugSpeedometer = true,
 }

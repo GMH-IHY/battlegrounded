@@ -4,7 +4,8 @@
 --
 -- Which move a key press picks. The attacker's client picks (it knows whether you're running,
 -- airborne or holding Space); the server checks the pick is one this key could make.
--- Until the loadout menu exists every fighter carries the first build: Sword + Dagger + Lotus Fungus.
+-- Until the loadout menu exists every fighter carries the first build: Sword + Dagger + Lotus Fungus
+-- + Wind.
 --
 --   M1   chain position 1-3 (Chain): ground M1 1 / 2 / 3, or the launcher for 3 with Space held;
 --        in the air M1 1 / 2 / the spike. Running (or a front dash) starts with the lunge instead.
@@ -14,6 +15,7 @@
 --        stage 3); the stab becomes the impale against an airborne opponent in front (stages 1, 3).
 --   R    hold = the heal channel; a quick tap = rip out (rip = true).
 --   G    the stage 3 form.
+--   Q    Wind: the pull with S held (back = true), else the push.
 
 local Loadout = {}
 
@@ -25,11 +27,12 @@ export type Context = {
 	stage: number?, -- Lotus meter stage (1-3)
 	targetAirborne: boolean?, -- an airborne opponent in front, within the impale's range
 	rip: boolean?, -- R was tapped, not held
+	back: boolean?, -- S held (moving away from where you face)
 }
 
-export type Build = { Weapon: string, Secondary: string, Magic: string }
+export type Build = { Weapon: string, Secondary: string, Magic: string, Element: string }
 
-Loadout.Default = { Weapon = "Sword", Secondary = "Dagger", Magic = "Lotus" } :: Build
+Loadout.Default = { Weapon = "Sword", Secondary = "Dagger", Magic = "Lotus", Element = "Wind" } :: Build
 
 local STAB = { "Lotus.Stab1", "Lotus.Strand2", "Lotus.Stab3" }
 local IMPALE: { [number]: string } = { [1] = "Lotus.Impale1", [3] = "Lotus.Impale3" }
@@ -57,6 +60,8 @@ function Loadout.Pick(slot: string, ctx: Context): string?
 		return if ctx.air then "Dagger.AirSlash" else "Dagger.Stab"
 	elseif slot == "One" then
 		return if ctx.air then "Sword.AirOne" else "Sword.One"
+	elseif slot == "Q" then
+		return if ctx.back then "Wind.Pull" else "Wind.Push"
 	end
 	local stage = math.clamp(ctx.stage or 1, 1, 3)
 	if slot == "Two" then
@@ -92,6 +97,7 @@ function Loadout.CanPick(slot: string, moveId: string): boolean
 								stage = stage,
 								targetAirborne = flag,
 								rip = flag,
+								back = flag,
 							}
 							if Loadout.Pick(slot, ctx) == moveId then
 								return true

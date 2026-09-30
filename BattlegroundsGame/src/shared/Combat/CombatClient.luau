@@ -87,6 +87,7 @@ type Data = {
 	lastMove: string,
 	lastAdvantage: number?,
 	destroyed: boolean,
+	backForTest: boolean?,
 }
 
 export type CombatClient = typeof(setmetatable({} :: Data, CombatClient))
@@ -127,6 +128,7 @@ function CombatClient.new(character: Model, motor: CharacterMotor.CharacterMotor
 		lastMove = "",
 		lastAdvantage = nil,
 		destroyed = false,
+		backForTest = nil,
 	} :: Data, CombatClient)
 
 	table.insert(self.connections, RunService.Heartbeat:Connect(function(dt: number)
@@ -246,7 +248,28 @@ function CombatClient._context(self: CombatClient, lunge: boolean?): Loadout.Con
 		stage = if typeof(stage) == "number" then stage else 1,
 		targetAirborne = self:_airborneTargetAhead(),
 		rip = false,
+		back = self:_holdingBack(),
 	}
+end
+
+-- S held: the movement keys point away from where you face (Wind's Q pulls instead of pushing).
+function CombatClient._holdingBack(self: CombatClient): boolean
+	if self.backForTest ~= nil then
+		return self.backForTest
+	end
+	local keys = self.humanoid.MoveDirection
+	local look = self.root.CFrame.LookVector
+	local flatKeys = Vector3.new(keys.X, 0, keys.Z)
+	local flatLook = Vector3.new(look.X, 0, look.Z)
+	if flatKeys.Magnitude < 0.1 or flatLook.Magnitude < 1e-3 then
+		return false
+	end
+	return flatKeys.Unit:Dot(flatLook.Unit) < -0.5
+end
+
+-- Test helper: pretend S is (true) / isn't (false) held for Q, or read the keys again (nil).
+function CombatClient.SetBackForTest(self: CombatClient, back: boolean?)
+	self.backForTest = back
 end
 
 -- A key press: "M1", "M2" or "One". lunge = came from a front dash (the running M1).

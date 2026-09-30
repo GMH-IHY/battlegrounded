@@ -2,23 +2,23 @@
 -- AnimationGallery (LocalScript)
 -- Location: StarterPlayer > StarterPlayerScripts > AnimationGallery
 --
--- Studio-only pose viewer. Press P during Play: copies of your character appear in a row,
--- each frozen on one pose of an animation, so every pose can be checked at once on the real
--- avatar. P again steps to the next camera angle, then the next animation; after the last
--- one the gallery closes. Reads the KeyframeSequences that StudioAnimationMirror copies into
+-- Studio-only pose viewer. Settings menu (gear) > Debug > Animation gallery during Play: copies of
+-- your character appear in a row, each frozen on one pose of an animation, so every pose can be
+-- checked at once on the real avatar. The Next button steps to the next camera angle, then the next
+-- animation; after the last one (or Close) the gallery closes. Reads the KeyframeSequences that StudioAnimationMirror copies into
 -- ReplicatedStorage, so it always shows the latest saved edits.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 if not RunService:IsStudio() then
 	return
 end
 
-local KEY = Enum.KeyCode.P -- F7 is taken by Studio itself
+local SettingsMenu = require(script.Parent:WaitForChild("SettingsMenu"))
+
 local ORDER = {
 	"DashForward",
 	"DashRight",
@@ -68,6 +68,23 @@ label.TextSize = 20
 label.TextColor3 = Color3.new(1, 1, 1)
 label.Text = ""
 label.Parent = gui
+
+local function barButton(text: string, x: number): TextButton
+	local b = Instance.new("TextButton")
+	b.AnchorPoint = Vector2.new(0.5, 0)
+	b.Position = UDim2.new(0.5, x, 0, 50)
+	b.Size = UDim2.fromOffset(110, 30)
+	b.BackgroundColor3 = Color3.new(0, 0, 0)
+	b.BackgroundTransparency = 0.3
+	b.Font = Enum.Font.ArialBold
+	b.TextSize = 18
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Text = text
+	b.Parent = gui
+	return b
+end
+local nextButton = barButton("Next", -60)
+local closeButton = barButton("Close", 60)
 gui.Parent = player:WaitForChild("PlayerGui")
 
 local folder: Folder? = nil
@@ -211,7 +228,7 @@ local function applyView()
 		local eye = rowCenter + view.offset * scale
 		camera.CFrame = CFrame.lookAt(eye, rowCenter + Vector3.new(0, -0.5, 0))
 	end
-	label.Text = string.format("%s  -  %d poses  -  %s view   (P: next)", ORDER[sequenceIndex], poseCount, view.name)
+	label.Text = string.format("%s  -  %d poses  -  %s view", ORDER[sequenceIndex], poseCount, view.name)
 end
 
 local function stop()
@@ -245,8 +262,11 @@ local function advance()
 	stop()
 end
 
-UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
-	if not gameProcessed and input.KeyCode == KEY then
+nextButton.Activated:Connect(advance)
+closeButton.Activated:Connect(stop)
+SettingsMenu.AddButton("Debug", "Animation gallery", function()
+	SettingsMenu.Close()
+	if sequenceIndex == 0 then
 		advance()
 	end
 end)

@@ -2,7 +2,7 @@
 
 Draft, Sep 29, 2026. Every number is a placeholder chosen so the rules in [DesignPlan.md](DesignPlan.md) fit together; playtests tune them.
 
-**In the game (phase 2):** the global rules and stamina are `ReplicatedStorage > Combat > CombatConfig`; the Sword, Dagger and Lotus tables are `Combat > MoveSets > Sword / Dagger / Lotus` (meter rules in `CombatConfig`) (plus what the tables here don't list: hit pause per move, pushback, the step / lunge distance, the slash shape). `python -m pytest tests` checks these tables against the move sets, so change both together. Wind and Moth are still design only. Lotus is built as of phase 3 (see its notes below).
+**In the game (phase 2):** the global rules and stamina are `ReplicatedStorage > Combat > CombatConfig`; the Sword, Dagger, Lotus and Wind tables are `Combat > MoveSets > Sword / Dagger / Lotus / Wind` (meter rules in `CombatConfig`; the Moth's numbers in `Movement > MovementConfig`) (plus what the tables here don't list: hit pause per move, pushback, the step / lunge distance, the slash shape). `python -m pytest tests` checks these tables against the move sets, so change both together. Lotus is built as of phase 3, Wind and the Moth rework as of phase 4 (see their notes below).
 
 ## Conventions
 
@@ -128,6 +128,8 @@ Draft, Sep 29, 2026. Every number is a placeholder chosen so the rules in [Desig
 
 Both redirect projectiles inside the cone and add +25 status build-up.
 
+**How the game does it (phase 4):** Q picks the pull when S is held (the keys point away from where you face), else the push. The cone is a 10×6×18 box in front. Push: a 24-frame stagger that carries them 30 studs away (+1, but out of reach). Pull: a 28-frame stagger that brings them to 5 studs in front of you (+5, so an M1 links). Both carry the target in the air too (no hanging). Blocked: they're still carried, with no damage or chip (−2). A projectile inside the cone on an active frame turns to fly where you face, with its range restarted, and becomes yours. Four Q hits (4 × 25) make Drafted.
+
 ## Statuses
 
 | Status | Applied by | Effect | Ends |
@@ -145,6 +147,8 @@ Both redirect projectiles inside the cone and add +25 status build-up.
 | Flight | Hold Space in the air inside your light | 20/s | Ends when you leave the light, burn out, or press M1 |
 | Recall | Ctrl while the lantern is out | 0 | Flies back to you |
 | Lantern knocked down | Any hit on it | — | Can't be thrown for 6 s |
+
+**How the game does it (phase 4):** the throw goes toward the crosshair and stops at the first thing it meets (wall, floor, someone: no damage) or at the aimed point, then hangs there for 5 s with its light (30 studs) and flies back by itself. Ctrl while it's out calls it back at 90 studs/s; once back in hand it can't be thrown for 1 s. The flight starts after Space has been held 0.15 s in the air inside your own light. Wing burst: ~20 studs in 0.5 s. "Any hit on it" is any attack hitbox or projectile of someone else touching it while it's thrown or hanging: it falls and lies on the floor (walk into it or recall it). The old tag, tag-flight and impact burst are gone.
 
 ## Example routes (for the damage budget)
 

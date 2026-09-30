@@ -6,12 +6,12 @@
 -- "MothLantern") is only placed at the owner's reports (~20 a second), so here it's hidden and a
 -- local copy is drawn instead:
 --   Thrown    -> the arc is replayed from the throw's start values (LanternPhysics, same as the
---                owner), so it flies smoothly; it stops at whatever it runs into until the owner's
---                next report says what happened.
+--                owner), so it flies smoothly, up to ThrowStop (where it will hang) or whatever it
+--                runs into first.
 --   Suspended -> sits at the reported point with its light sphere.
---   Dropped   -> follows the reported point, smoothed.
+--   Dropped / Returning -> follows the reported point, smoothed.
 -- On the hip / in the hand the server lantern (welded to the character) shows as it is.
--- Also plays the impact flash (attributes BurstAt / BurstId).
+-- Also plays the flash where it starts hanging (attributes BurstAt / BurstId).
 -- Your own lantern is drawn by Lantern.luau, not here.
 
 local CollectionService = game:GetService("CollectionService")
@@ -149,7 +149,11 @@ local function replay(view: View): (Vector3, Vector3)
 		local core = model.PrimaryPart
 		return if core then core.Position else view.position, Vector3.zero
 	end
+	local stop = model:GetAttribute("ThrowStop")
 	local t = math.max(0, Workspace:GetServerTimeNow() - view.throwStart)
+	if typeof(stop) == "number" then
+		t = math.min(t, stop)
+	end
 	local pos, vel = LanternPhysics.at(origin, velocity, gravity, t)
 	if view.replayStopped and view.replayPos then
 		return view.replayPos, Vector3.zero

@@ -12,13 +12,15 @@
 --                                                  chip damage), blockstun sized so the attacker ends at
 --                                                  the move's OnBlock advantage, pushback. A blocked grab
 --                                                  does nothing. A Lotus move hitting an Infested
---                                                  target's block WRAPS them (knocked down).
+--                                                  target's block WRAPS them (knocked down). Wind
+--                                                  still pushes / pulls a blocker (no chip).
 --   armour on the target's move                    ARMOUR: damage, no stun (hyper armour: any number of
 --                                                  hits during its startup)
 --   otherwise                                      HIT: counter-hit if the target was starting a move (a
 --                                                  heal channel counts); combo count, shrinking stun,
 --                                                  damage scaling, juggle limit, Drafted, Lotus meter,
 --                                                  statuses, knockback / launch / spike / grab / impale
+--                                                  / Wind's push and pull (a stagger that carries them)
 -- Both characters freeze for the hit pause, and the move's own clock stops meanwhile, so the
 -- frame advantage stays what the move data says.
 -- Returns what happened ("Hit", "Counter", "Block", "Parry", "Armour") or nil when nothing did.
@@ -45,6 +47,26 @@ end
 -- Launch speed for a height, under the place's gravity.
 local function riseSpeed(height: number): number
 	return math.sqrt(2 * Workspace.Gravity * math.max(height, 0))
+end
+
+-- Seconds a Wind push / pull takes to carry the target (the velocity decays to 0 over it).
+local WIND_PUSH_TIME = 0.4
+local WIND_PULL_TIME = 0.3
+
+-- A Wind push / pull: the flat velocity (decaying over the returned seconds) that carries the target
+-- `distance` studs away from the attacker, or to `distance` studs in front of them.
+local function windCarry(attacker: Fighter, target: Fighter, kind: string, distance: number): (Vector3, number)
+	if kind == "Pull" then
+		local goal = attacker.root.Position + flat(attacker.root.CFrame.LookVector) * distance
+		local delta = goal - target.root.Position
+		delta = Vector3.new(delta.X, 0, delta.Z)
+		return delta * (2 / WIND_PULL_TIME), WIND_PULL_TIME
+	end
+	local away = flat(target.root.Position - attacker.root.Position)
+	if away == Vector3.zero then
+		away = flat(attacker.root.CFrame.LookVector)
+	end
+	return away * (distance * 2 / WIND_PUSH_TIME), WIND_PUSH_TIME
 end
 
 function HitResolver.Scale(combo: Fighter.Combo): number
@@ -143,7 +165,9 @@ function HitResolver.Resolve(attacker: Fighter, target: Fighter, hit: Fighter.Hi
 			attacker.hooks.fx({ type = "Lotus", what = "Wrap", attacker = attacker.character, target = target.character, position = target.root.Position })
 			return "Hit"
 		end
-		local chip = if target.burnout then move.Damage * Config.BurnoutChip else 0
+		local windKind: string = move.OnHit.Kind
+		local isWind = windKind == "Push" or windKind == "Pull"
+		local chip = if target.burnout and not isWind then move.Damage * Config.BurnoutChip else 0
 		target:DrainStamina(move.Damage * Config.BlockStaminaPerDamage)
 		if chip > 0 then
 			target:TakeDamage(chip, false)
@@ -162,13 +186,18 @@ function HitResolver.Resolve(attacker: Fighter, target: Fighter, hit: Fighter.Hi
 		attacker.lastAdvantage = move.OnBlock
 		target.lastResult = "Blocked"
 		local pushback = if move.BlockPush > 0 then move.BlockPush else Config.BlockPushback
+		local blockVelocity, blockPush = push * (pushback * 2 / 0.15), 0.15
+		if isWind then
+			-- The wind moves them anyway, guard up or not.
+			blockVelocity, blockPush = windCarry(attacker, target, windKind, move.OnHit.Knockback)
+		end
 		attacker.hooks.result(attacker, hit.seq, "Block", hitstop, move.OnBlock)
 		target.hooks.react(target, {
 			kind = "Block",
 			stun = blockstun * FRAME,
 			hitstop = hitstop,
-			velocity = push * (pushback * 2 / 0.15),
-			push = 0.15,
+			velocity = blockVelocity,
+			push = blockPush,
 			chip = chip,
 			burnout = target.burnout,
 			attacker = attacker.character,
@@ -280,7 +309,7 @@ function HitResolver.Resolve(attacker: Fighter, target: Fighter, hit: Fighter.Hi
 		info.juggled = true
 	end
 
-	if kind == "Stun" then
+	if kind == "Stun" or kind == "Push" or kind == "Pull" then
 		local stun
 		if counter and move.CounterStun then
 			stun = move.CounterStun
@@ -297,6 +326,14 @@ function HitResolver.Resolve(attacker: Fighter, target: Fighter, hit: Fighter.Hi
 		info.hang = onHit.Hang or not grounded and move.Air
 		info.velocity = push * (onHit.Knockback * 2 / 0.15)
 		info.push = 0.15
+		if kind ~= "Stun" then
+			-- Wind: a stagger that carries them, grounded or airborne (no hanging in the air).
+			info.velocity, info.push = windCarry(attacker, target, kind, onHit.Knockback)
+			info.kind = "Stun"
+			info.hang = false
+			info.forced = true
+			info.wind = kind
+		end
 		attacker.lastAdvantage = if run then stun - attacker:FramesLeft(if hit.frame >= 0 then hit.frame else attacker:MoveFrame()) else nil
 	elseif kind == "Launch" then
 		combo.launches += 1

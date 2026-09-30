@@ -32,7 +32,7 @@ local Moves = require(Combat:WaitForChild("Moves"))
 local Loadout = require(Combat:WaitForChild("Loadout"))
 local FungusParts = require(Combat:WaitForChild("FungusParts"))
 
-type Move = Moves.Move
+export type Move = Moves.Move
 
 export type State =
 	"Idle"
@@ -120,6 +120,9 @@ export type Hooks = {
 	resolve: (attacker: Fighter, target: Fighter, hit: Hit) -> string?,
 	-- Fire a move's projectiles (Projectiles).
 	shoot: (fighter: Fighter, run: Run) -> (),
+	-- An active hitbox is out this frame: things that aren't fighters react to it (Wind turns
+	-- projectiles around, any attack knocks down a Moth's lantern).
+	sweep: (fighter: Fighter, cframe: CFrame, size: Vector3, move: Move) -> (),
 }
 
 local Fighter = {}
@@ -622,6 +625,7 @@ function Fighter._checkHits(self: Fighter, frame: number, lastActive: boolean)
 			found[model] = true
 		end
 	end
+	self.hooks.sweep(self, cframe, size, move)
 	self.hooks.fx({ type = "Hitbox", cframe = cframe, size = size, hit = next(found) ~= nil })
 	for model in found do
 		local target = self.hooks.fighterOf(model)

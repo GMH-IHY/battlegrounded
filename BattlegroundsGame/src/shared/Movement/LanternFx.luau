@@ -96,9 +96,9 @@ function LanternFx.placeCopy(copy: Model, cf: CFrame)
 	end
 end
 
--- Lit (glowing core) while thrown or hanging; the light sphere only while hanging.
+-- Lit (glowing core) while thrown, hanging or flying back; the light sphere only while hanging.
 function LanternFx.styleCopy(copy: Model, state: string)
-	local lit = state == "Thrown" or state == "Suspended"
+	local lit = state == "Thrown" or state == "Suspended" or state == "Returning"
 	local core = copy.PrimaryPart
 	if core then
 		core.Material = if lit then Enum.Material.Neon else Enum.Material.SmoothPlastic
@@ -120,9 +120,11 @@ function LanternFx.pose(position: Vector3, velocity: Vector3?, flying: boolean):
 	return CFrame.new(position)
 end
 
--- The impact burst: a quick flash of the lantern's light (radius = LanternBurstRadius).
+-- The flash when a thrown lantern stops and lights up: a quick ball of light.
+local BURST_RADIUS = 10
+
 function LanternFx.burst(position: Vector3)
-	local radius = Config.LanternBurstRadius
+	local radius = BURST_RADIUS
 	local flash = Instance.new("Part")
 	flash.Name = "LanternBurst"
 	flash.Shape = Enum.PartType.Ball

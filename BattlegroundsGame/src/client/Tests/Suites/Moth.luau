@@ -1,8 +1,9 @@
 --!strict
--- Moth suite: the paper wings on the character, Left Ctrl (tap = wing flight, hold = charge +
--- throw, press in the air = suspend, hold with the lantern away = fly inside its light or to a
--- tagged opponent), M1 ending a flight, the throw landing where the preview said, and hits on the
--- training dummy (DummyStand). Ctrl goes through Controls ("Race").
+-- Moth suite (docs/MoveData.md, "Moth"): the paper wings on the character, Left Ctrl (tap = wing
+-- burst, hold = charge + throw, press with the lantern out = recall), the thrown lantern hanging where
+-- it was aimed (no damage), flight by holding Space in the air inside your own light (ended by
+-- letting go, leaving the light, or M1), and the lantern knocked down by a training dummy's attack.
+-- Ctrl goes through Controls ("Race"), Space through "Jump".
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -36,6 +37,20 @@ end
 local function asMoth(t: Context)
 	t.character:SetAttribute("Race", "Moth")
 	t.lantern:ResetForTest()
+	t.stamina:Set(t.stamina:GetMax())
+end
+
+-- In the air inside a hanging lantern's light, holding Space: returns the flight that started.
+local function flyInLight(t: Context, lanternAt: Vector3, from: Vector3): string?
+	t.lantern:PlaceForTest(lanternAt, "Suspended")
+	t:teleport(from, INWARD)
+	aim(t, INWARD + Vector3.new(0, 0.4, 0))
+	t:wait(0.05)
+	t:press("Jump")
+	t:waitFor(function()
+		return t.lantern:GetFlight() ~= nil
+	end, Config.FlyHoldDelay + 0.4)
+	return t.lantern:GetFlight()
 end
 
 local tests: { Harness.Test } = {
@@ -70,7 +85,7 @@ local tests: { Harness.Test } = {
 		end,
 	},
 	{
-		name = "Wing flight (tap)",
+		name = "Wing burst (tap)",
 		run = function(t)
 			asMoth(t)
 			t:teleport(BASE, INWARD)
@@ -114,12 +129,13 @@ local tests: { Harness.Test } = {
 		end,
 	},
 	{
-		name = "Charge, throw, suspend, fly in the light, grab",
+		name = "Charge, throw: it hangs where aimed, no damage; Ctrl recalls it",
 		run = function(t)
 			asMoth(t)
 			t:teleport(BASE, INWARD)
 			aim(t, Vector3.new(INWARD.X, 0.1, INWARD.Z))
-			t.lantern:SetAimForTest(t.root.Position + INWARD * 40 + Vector3.new(0, 8, 0))
+			local target = t.root.Position + INWARD * 25 + Vector3.new(0, 8, 0)
+			t.lantern:SetAimForTest(target)
 			holdCtrl(t, 0)
 			local charging = t.lantern:GetState() == "Charging"
 			t:wait(0.2)
@@ -142,76 +158,94 @@ local tests: { Harness.Test } = {
 			local weak = t.lantern:GetLastThrowSpeed()
 			t:wait(0.25)
 			t:check("throwing doesn't move you", (t.root.Position - before).Magnitude < 0.6)
-			tapCtrl(t)
-			local p0 = t.lantern:GetPosition()
-			t:wait(0.8)
-			t:check("press while it's in the air suspends it", t.lantern:GetState() == "Suspended" and (t.lantern:GetPosition() - p0).Magnitude < 0.05,
-				"state " .. t.lantern:GetState())
-			t.stamina:Set(t.stamina:GetMax())
-			local lanternAt = t.lantern:GetPosition()
-			aim(t, (t.root.Position - lanternAt) * Vector3.new(1, 0, 1) + Vector3.new(0, 2, 0))
-			holdCtrl(t)
-			local kind = t.lantern:GetFlight()
-			local farthest = 0
 			t:waitFor(function()
-				return false
-			end, 1.5, function()
-				farthest = math.max(farthest, (t.root.Position - lanternAt).Magnitude)
-			end)
-			t:check("hold inside the light: free flight that can't leave the light", kind == "Free" and farthest <= Config.LanternLightRadius + 1.5,
-				string.format("flight %s, farthest %.1f (radius %d)", tostring(kind), farthest, Config.LanternLightRadius))
-			local speedBefore = 0
+				return t.lantern:GetState() == "Suspended"
+			end, 2)
+			local hangAt = t.lantern:GetPosition()
+			t:check("it stops at the aimed point and hangs there", t.lantern:GetState() == "Suspended" and (hangAt - target).Magnitude < 2,
+				string.format("state %s, %.1f studs from the aim", t.lantern:GetState(), (hangAt - target).Magnitude))
+			t:wait(0.5)
+			t:check("it stays put while it hangs", t.lantern:GetState() == "Suspended" and (t.lantern:GetPosition() - hangAt).Magnitude < 0.05)
+			t:check("a quick hold throws slowly", weak < Config.LanternThrowSpeedMin + 25, string.format("%.0f", weak))
+			tapCtrl(t)
+			local recalled = t.lantern:GetState() == "Returning"
 			t:waitFor(function()
 				return t.lantern:GetState() == "Hip"
-			end, 3, function()
-				aim(t, t.lantern:GetPosition() - t.root.Position)
-				speedBefore = t.root.AssemblyLinearVelocity.Magnitude
-			end)
-			local speedAfter = t.root.AssemblyLinearVelocity.Magnitude
-			t:release("Race")
-			t:check("flying into the lantern grabs it with a burst", t.lantern:GetState() == "Hip" and t.lantern:GetLastFlightEnd() == "grab" and speedAfter > speedBefore + 10,
-				string.format("speed %.0f -> %.0f", speedBefore, speedAfter))
+			end, 2)
+			t:check("Ctrl with it out recalls it: it flies back to the hand", recalled and t.lantern:GetState() == "Hip",
+				"state " .. t.lantern:GetState())
 			holdCtrl(t)
 			local blocked = t.lantern:GetState() ~= "Charging"
 			t:release("Race")
-			t:check("just grabbed: no throw during LanternGrabCooldown", blocked)
-			t:check("a quick hold throws slowly", weak < Config.LanternThrowSpeedMin + 25, string.format("%.0f", weak))
-			t:grounded(8)
+			t:check("just caught: no throw during LanternGrabCooldown", blocked)
+			t.lantern:SetAimForTest(nil)
 		end,
 	},
 	{
-		name = "No flight outside the light; lying lantern; walking into it",
+		name = "After LanternSuspendTime it comes back by itself",
 		run = function(t)
 			asMoth(t)
 			t:teleport(BASE, INWARD)
-			t.lantern:PlaceForTest(BASE + Vector3.new(0, 8, -(Config.LanternLightRadius + 10)), "Suspended")
-			holdCtrl(t)
-			local outside = t.lantern:GetFlight()
-			t:release("Race")
-			t:check("outside its light: no flight", outside == nil, t.lantern:GetLastInfo())
-			t.lantern:PlaceForTest(BASE + Vector3.new(0, 8, -5), "Suspended")
-			t:teleport(BASE + Vector3.new(0, 8, -5), INWARD)
-			holdCtrl(t)
-			local started = t.lantern:GetFlight() == "Free"
-			t:teleport(BASE + Vector3.new(0, 8, -(Config.LanternLightRadius + 5)), INWARD)
-			t:wait(0.05)
-			local ended = t.lantern:GetFlight() == nil and t.lantern:GetLastFlightEnd() == "left_light"
-			t:release("Race")
-			t:check("leaving the light stops the flight", started and ended, t.lantern:GetLastInfo())
-			t.lantern:PlaceForTest(BASE + INWARD * 10 + Vector3.new(0, -3.5, 0), "Dropped")
-			holdCtrl(t)
-			local lying = t.lantern:GetFlight()
-			t:release("Race")
-			t:check("lantern lying somewhere: no flight", lying == nil)
-			t:teleport(BASE + INWARD * 9, INWARD)
+			t.lantern:PlaceForTest(BASE + INWARD * 12 + Vector3.new(0, 6, 0), "Suspended")
+			t:wait(Config.LanternSuspendTime - 0.5)
+			local still = t.lantern:GetState() == "Suspended"
 			t:waitFor(function()
 				return t.lantern:GetState() == "Hip"
-			end, 1)
-			t:check("walking into it puts it back on the hip", t.lantern:GetState() == "Hip")
+			end, 2)
+			t:check("hangs the whole time, then returns to the hip", still and t.lantern:GetState() == "Hip", "state " .. t.lantern:GetState())
 		end,
 	},
 	{
-		name = "The throw lands on the preview ring; hits and tags",
+		name = "Hold Space in the air inside your light: fly; letting go ends it",
+		run = function(t)
+			asMoth(t)
+			local lanternAt = BASE + Vector3.new(0, 12, 0)
+			local kind = flyInLight(t, lanternAt, BASE + Vector3.new(0, 10, 4))
+			local sp0 = t.stamina:GetValue()
+			t:wait(1)
+			local drained = sp0 - t.stamina:GetValue()
+			t:check("holding Space in the air inside the light flies", kind == "Free", tostring(kind) .. ": " .. t.lantern:GetLastInfo())
+			t:near("drains FlyDrain stamina a second", drained, Config.FlyDrain, 4)
+			t:release("Jump")
+			t:wait(0.05)
+			t:check("letting go of Space ends it", t.lantern:GetFlight() == nil and t.lantern:GetLastFlightEnd() == "released",
+				t.lantern:GetLastFlightEnd())
+			t:grounded(8)
+
+			-- Leaving the light ends it.
+			asMoth(t)
+			kind = flyInLight(t, lanternAt, BASE + Vector3.new(0, 10, 4))
+			t:teleport(lanternAt + Vector3.new(0, 0, Config.LanternLightRadius + 5), INWARD)
+			t:wait(0.05)
+			t:release("Jump")
+			t:check("leaving the light ends it", kind == "Free" and t.lantern:GetLastFlightEnd() == "left_light", t.lantern:GetLastFlightEnd())
+			t:grounded(8)
+
+			-- M1 ends it (and swings).
+			asMoth(t)
+			kind = flyInLight(t, lanternAt, BASE + Vector3.new(0, 10, 4))
+			t:press("M1")
+			t:release("Jump")
+			t:check("M1 ends it and swings", kind == "Free" and t.lantern:GetLastFlightEnd() == "m1" and t.combat:GetPhase() ~= "Idle",
+				string.format("%s, swing %s", t.lantern:GetLastFlightEnd(), t.combat:GetPhase()))
+			t:grounded(8)
+
+			-- Outside the light: nothing.
+			asMoth(t)
+			t.lantern:PlaceForTest(BASE + Vector3.new(0, 8, -(Config.LanternLightRadius + 10)), "Suspended")
+			t:teleport(BASE + Vector3.new(0, 10, 0), INWARD)
+			t:wait(0.05)
+			t:press("Jump")
+			t:wait(Config.FlyHoldDelay + 0.2)
+			local outside = t.lantern:GetFlight()
+			t:release("Jump")
+			t:check("outside the light: no flight", outside == nil, t.lantern:GetLastInfo())
+			t:grounded(8)
+			t.lantern:ResetForTest()
+		end,
+	},
+	{
+		name = "The throw hangs on the preview ring; a dummy's attack knocks it down",
 		run = function(t)
 			asMoth(t)
 			t:teleport(BASE, INWARD)
@@ -229,24 +263,16 @@ local tests: { Harness.Test } = {
 				return t.lantern:GetLastLanding() ~= nil
 			end, 3)
 			local landed = t.lantern:GetLastLanding()
-			local miss = if predicted and landed then (landed - predicted).Magnitude else math.huge
-			t:check("lands where the preview ring is", miss < 1, string.format("%.2f studs apart", miss))
-			t:check("its first impact flashes", t.lantern:HasBurst())
+			local miss = if landed then (landed - predicted).Magnitude else math.huge
+			t:check("hangs where the preview ring is", miss < 1, string.format("%.2f studs apart", miss))
 			t.lantern:SetAimForTest(nil)
 
-			local folder = Workspace:FindFirstChild("TrainingDummies")
-			local dummy = folder and folder:FindFirstChild("DummyStand")
-			if dummy and dummy:IsA("Model") then
-				t:dummy("DummyStand")
-			end
-			local dummyRoot = dummy and dummy:FindFirstChild("HumanoidRootPart")
-			local dummyHumanoid = dummy and dummy:FindFirstChildOfClass("Humanoid")
-			if not (dummy and dummy:IsA("Model") and dummyRoot and dummyRoot:IsA("BasePart") and dummyHumanoid) then
-				t:log("no training dummy (Workspace > TrainingDummies > DummyStand): hit checks skipped")
-				return
-			end
+			-- A thrown lantern hitting someone: no damage, it just hangs there.
+			local dummy = t:dummy("DummyStand")
+			local dummyRoot = dummy:FindFirstChild("HumanoidRootPart") :: BasePart
+			local dummyHumanoid = dummy:FindFirstChildOfClass("Humanoid") :: Humanoid
 			t.lantern:ResetForTest()
-			t:teleport(dummyRoot.Position + Vector3.new(0, 1, 24), -Vector3.zAxis)
+			t:teleport(dummyRoot.Position + dummyRoot.CFrame.LookVector * 20 + Vector3.new(0, 1, 0), -dummyRoot.CFrame.LookVector)
 			local hp0 = dummyHumanoid.Health
 			aim(t, dummyRoot.Position - t.lantern:GetPosition())
 			t.lantern:SetAimForTest(dummyRoot.Position)
@@ -254,23 +280,31 @@ local tests: { Harness.Test } = {
 			t:release("Race")
 			local strong = t.lantern:GetLastThrowSpeed()
 			t:waitFor(function()
-				return t.lantern:GetTagTarget() ~= nil
+				return t.lantern:GetState() == "Suspended"
 			end, 1.5)
-			local tagged = t.lantern:GetTagTarget()
 			t:near("full charge throws at LanternThrowSpeedMax", strong, Config.LanternThrowSpeedMax, 3)
-			t:check("a hit tags them and deals LanternDamage", tagged == dummy and math.abs((hp0 - dummyHumanoid.Health) - Config.LanternDamage) < 0.01,
-				string.format("health %.0f -> %.0f", hp0, dummyHumanoid.Health))
-			t.stamina:Set(t.stamina:GetMax())
-			holdCtrl(t)
-			local kind = t.lantern:GetFlight()
-			t:waitFor(function()
-				return t.lantern:GetFlight() == nil
-			end, 2)
-			t:release("Race")
-			local gap = (dummyRoot.Position - t.root.Position).Magnitude
-			t:check("hold while they're tagged flies you to them", kind == "Tag" and gap < Config.TagFlyStopDistance + 1.5,
-				string.format("flight %s, %.1f studs from them", tostring(kind), gap))
+			t:check("hitting someone does no damage; it hangs", t.lantern:GetState() == "Suspended" and math.abs(hp0 - dummyHumanoid.Health) < 0.01,
+				string.format("state %s, health %.0f -> %.0f", t.lantern:GetState(), hp0, dummyHumanoid.Health))
 			t.lantern:SetAimForTest(nil)
+
+			-- Knocked down: the dummy swings at it.
+			t.lantern:ResetForTest()
+			t.lantern:PlaceForTest(dummyRoot.Position + dummyRoot.CFrame.LookVector * 3 + Vector3.new(0, 0.5, 0), "Suspended")
+			t:wait(0.3) -- the server places it
+			t:debug("DummyMove", "DummyStand", "Sword.M1_1")
+			t:waitFor(function()
+				return t.lantern:GetState() == "Dropped"
+			end, 1)
+			t:check("an attack touching it knocks it down", t.lantern:GetState() == "Dropped", "state " .. t.lantern:GetState())
+			t:near("and it can't be thrown for LanternKnockLockout", t.lantern:GetKnockLockout(), Config.LanternKnockLockout, 1)
+			tapCtrl(t)
+			t:waitFor(function()
+				return t.lantern:GetState() == "Hip"
+			end, 2)
+			holdCtrl(t)
+			local refused = t.lantern:GetState() ~= "Charging"
+			t:release("Race")
+			t:check("recalled, but still no throw while knocked down", t.lantern:GetState() == "Hip" and refused, t.lantern:GetLastInfo())
 			t.lantern:ResetForTest()
 		end,
 	},
@@ -278,6 +312,6 @@ local tests: { Harness.Test } = {
 
 return {
 	name = "Moth",
-	description = "Paper wings, wing flight, lantern throw / suspend / flight / tag",
+	description = "Paper wings, wing burst, lantern throw / hang / recall / knock-down, flight in your light",
 	tests = tests,
 }

@@ -9,7 +9,7 @@
 -- Actions: Jump (Space), Dash (Shift), Race (Left Ctrl), Forward (W), M1 (left click),
 -- M2 (right click: the secondary weapon), One (1: the weapon ability), Block (F: hold to block,
 -- a fresh press is a parry try), and the magic keys Two, Three, Four (2 / 3 / 4), R (hold = heal,
--- tap = rip out) and G. A press without a release is fine for one-shot actions.
+-- tap = rip out) and G, and Wind's Q. A press without a release is fine for one-shot actions.
 --
 -- The Humanoid's own jump (Humanoid.Jump while Space is held) comes from Roblox's control script,
 -- not from here: tests that hold Jump set Humanoid.Jump themselves.
@@ -28,6 +28,7 @@ export type ActionName =
 	| "Four"
 	| "R"
 	| "G"
+	| "Q"
 export type ActionSet = {
 	Jump: () -> (),
 	Dash: () -> (),
@@ -42,6 +43,7 @@ export type ActionSet = {
 	Four: () -> (),
 	R: () -> (),
 	G: () -> (),
+	Q: () -> (),
 }
 export type Actions = { press: ActionSet, release: ActionSet }
 

@@ -252,14 +252,21 @@ local function projectile(info: { [string]: any })
 	if typeof(id) ~= "number" or typeof(position) ~= "Vector3" or typeof(direction) ~= "Vector3" or not near(position) then
 		return
 	end
+	-- Turned around by Wind: the same shot again from here, so drop the old path.
+	local old = flying[id]
+	if old then
+		for _, h in old do
+			FxPieces.Stop(h)
+		end
+	end
 	local count = math.max(math.ceil(range / speed / STEP), 1)
 	local handles = {}
 	if info.ground == true then
 		-- The ground strand: spikes breaking out of the floor along its path, each lasting a moment.
 		for i = 1, count do
 			task.delay(i * STEP, function()
-				if not flying[id] then
-					return
+				if flying[id] ~= handles then
+					return -- ended, or turned around (a new path)
 				end
 				local at = position + direction * speed * i * STEP
 				for s = 1, 2 do

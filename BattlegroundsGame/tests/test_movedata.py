@@ -1,6 +1,6 @@
 """The move tables in docs/MoveData.md and the move sets the game runs (src/shared/Combat/MoveSets)
 must say the same thing: startup, active, recovery, damage and on-block advantage for every Sword,
-Dagger and Lotus move.
+Dagger, Lotus and Wind move.
 
     cd BattlegroundsGame && python -m pytest tests
 """
@@ -29,6 +29,10 @@ ROWS = {
         "Stab": ["Dagger.Stab"],
         "Air slash": ["Dagger.AirSlash"],
     },
+    "Wind": {
+        "Q + forward / sideways / standing": ["Wind.Push"],
+        "Q + back": ["Wind.Pull"],
+    },
 }
 
 
@@ -54,7 +58,7 @@ def luau_moves():
     moves = {}
     for name in os.listdir(SETS):
         text = open(os.path.join(SETS, name), encoding="utf-8").read()
-        for block in re.split(r"(?:Define|lotus)\(\{", text)[1:]:
+        for block in re.split(r"(?:Define|lotus|wind)\(\{", text)[1:]:
             fields = {}
             for key in ("Startup", "Active", "Recovery", "WhiffRecovery", "Damage", "OnBlock", "MeterCost", "Cooldown"):
                 m = re.search(rf"^\t\t{key} = (-?[\d.]+),", block, re.M)
@@ -74,11 +78,13 @@ def test_move_matches_doc(section, row, move_id):
     doc = doc_rows(section)[row]
     move = luau_moves()[move_id]
     for column, key in (("Startup", "Startup"), ("Active", "Active"), ("Recovery", "Recovery"), ("Damage", "Damage")):
+        if column not in doc:
+            continue
         assert first_number(doc[column]) == move[key], f"{column}: doc {doc[column]!r}, game {move.get(key)}"
     on_block = doc["On block"]
     if "Unblockable" in on_block:
         assert move["Guard"] != "Normal", "the doc says unblockable"
-    else:
+    elif first_number(on_block) is not None:
         assert first_number(on_block) == move.get("OnBlock", 0), f"On block: doc {on_block!r}, game {move.get('OnBlock', 0)}"
     miss = re.search(r"\((\d+) on miss\)", doc["Recovery"])
     if miss:

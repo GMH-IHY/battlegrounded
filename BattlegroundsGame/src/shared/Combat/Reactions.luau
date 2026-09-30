@@ -103,7 +103,8 @@ function Reactions.React(self: Reactions, info: { [string]: any })
 	end
 
 	if kind == "Stun" then
-		local hang = info.hang == true or airborne(self.humanoid)
+		-- Forced (Wind's push / pull): carried along even in the air, never left hanging.
+		local hang = info.forced ~= true and (info.hang == true or airborne(self.humanoid))
 		self.anim:Play(if hang then "HitAir" else (if typeof(info.anim) == "string" then info.anim else "HitStun1"))
 		self.anim:Freeze(hitstop)
 		local stun = if typeof(info.stun) == "number" then info.stun else 0.25
