@@ -9,10 +9,15 @@
 -- and a crosshair shows in the middle of the screen (the throw aims there).
 -- In burnout the SP bar turns orange and blinks (in steps) until the meter is full again.
 --
--- Live slots: 1 (the sword's 1), 2 / 3 / 4 / R / G (the Lotus Fungus; their names follow your meter
--- stage, G's border lights up at a full meter), Q (Wind's push / pull), RMB (the dagger), Ctrl
--- (race). Above HP sits the Lotus meter: three segments (stages at 40 / 80),
+-- The slots come from your build (Loadout.BuildOf / Loadout.Slots: weapon, magic, element,
+-- secondary, race), rebuilt when it changes: today 1 (the sword's 1), 2 / 3 / 4 / R / G (the Lotus
+-- Fungus; their names follow your meter stage, G's border lights up at a full meter), Q (Wind's push
+-- / pull), RMB (the dagger), Ctrl (the Moth's lantern). Only a Lotus build shows the meter. Above HP sits the Lotus meter: three segments (stages at 40 / 80),
 -- blinking cyan in the stage 3 form.
+-- Your own statuses (DRAFTED / INFESTED) sit right of the HP bar, with a thin build-up strip under
+-- it. On the right of the screen, the COMBO counter: hits and damage of the combo you're doing on
+-- someone (their ComboHits / ComboDamage), yellow past the normal damage budget, red past the stage 3
+-- one (CombatConfig Budget*).
 -- Everything is sized for a 720 px tall screen and scaled to the real one (UIScale).
 
 local Players = game:GetService("Players")
@@ -28,8 +33,10 @@ movement:WaitForChild("Lantern")
 movement:WaitForChild("MovementConfig")
 ReplicatedStorage:WaitForChild("Combat"):WaitForChild("CombatClient")
 local CombatClient = require(ReplicatedStorage.Combat.CombatClient)
+local Loadout = require(ReplicatedStorage.Combat.Loadout)
 local Moves = require(ReplicatedStorage.Combat.Moves)
 local CombatConfig = require(ReplicatedStorage.Combat.CombatConfig)
+local CombatRemotes = require(ReplicatedStorage.Combat.CombatRemotes)
 local Dash = require(ReplicatedStorage.Movement.Dash)
 local Lantern = require(ReplicatedStorage.Movement.Lantern)
 local Config = require(ReplicatedStorage.Movement.MovementConfig)
@@ -64,20 +71,7 @@ local BAR_W, BAR_H = 150, 16
 local HALF_GAP = 6
 local HALF_W, HALF_H = (BAR_W - HALF_GAP) / 2, 9
 
--- The skill slots (design plan keys).
--- cooldown: the CombatClient cooldown group the slot shows.
-type SlotSpec = { key: string, name: string, live: string?, cooldown: string? }
-local SLOTS: { SlotSpec } = {
-	{ key = "1", name = "Sword 1", live = "Weapon", cooldown = "Sword.One" },
-	{ key = "2", name = "Stab", live = "Magic", cooldown = "Lotus.Two" },
-	{ key = "3", name = "Spore", live = "Magic", cooldown = "Lotus.Three" },
-	{ key = "4", name = "Grab", live = "Magic", cooldown = "Lotus.Four" },
-	{ key = "R", name = "Heal / Rip", live = "Magic", cooldown = "Lotus.R" },
-	{ key = "Q", name = "Push / Pull", live = "Element", cooldown = "Wind.Q" },
-	{ key = "G", name = "Form", live = "Magic", cooldown = "Lotus.G" },
-	{ key = "RMB", name = "Dagger", live = "Secondary", cooldown = "Dagger" },
-	{ key = "Ctrl", name = "Race", live = "Race" },
-}
+local MAX_SLOTS = 10 -- the slot row is sized for this many
 
 pcall(function()
 	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Health, false)
@@ -128,7 +122,7 @@ local column = Instance.new("Frame")
 column.Name = "Column"
 column.AnchorPoint = Vector2.new(0.5, 1)
 column.Position = UDim2.new(0.5, 0, 1, -10)
-column.Size = UDim2.fromOffset(#SLOTS * (SLOT + SLOT_GAP), 170)
+column.Size = UDim2.fromOffset(MAX_SLOTS * (SLOT + SLOT_GAP), 170)
 column.BackgroundTransparency = 1
 column.Parent = gui
 
@@ -206,6 +200,52 @@ hpBar.back.AnchorPoint = Vector2.new(0.5, 1)
 hpBar.back.Position = UDim2.new(0.5, 0, 1, -(HALF_H + 12 + 5 + BAR_H + 6))
 hpBar.back.Parent = column
 
+-- Your build-up (how close you are to the opponent's element status): a thin strip under HP.
+local buildupStrip = Instance.new("Frame")
+buildupStrip.Name = "Buildup"
+buildupStrip.AnchorPoint = Vector2.new(0, 1)
+buildupStrip.Position = UDim2.fromScale(0, 1)
+buildupStrip.Size = UDim2.fromOffset(0, 3)
+buildupStrip.BackgroundColor3 = Color3.fromRGB(215, 235, 240)
+buildupStrip.BorderSizePixel = 0
+buildupStrip.ZIndex = 4
+buildupStrip.Parent = hpBar.back
+-- Your statuses, right of the HP bar.
+local statusText = text(column, "Statuses", "", 12)
+statusText.AnchorPoint = Vector2.new(0, 1)
+statusText.Position = UDim2.new(0.5, BAR_W / 2 + 6, 1, -(HALF_H + 12 + 5 + BAR_H + 6))
+statusText.Size = UDim2.fromOffset(140, BAR_H)
+statusText.TextXAlignment = Enum.TextXAlignment.Left
+statusText.RichText = true
+
+-- The combo counter (right of the screen).
+local comboFrame = Instance.new("Frame")
+comboFrame.Name = "Combo"
+comboFrame.AnchorPoint = Vector2.new(1, 0.5)
+comboFrame.Position = UDim2.new(1, -30, 0.45, 0)
+comboFrame.Size = UDim2.fromOffset(160, 60)
+comboFrame.BackgroundTransparency = 1
+comboFrame.Visible = false
+comboFrame.Parent = gui
+local comboHits = text(comboFrame, "Hits", "", 30)
+comboHits.Size = UDim2.new(1, 0, 0, 32)
+comboHits.TextXAlignment = Enum.TextXAlignment.Right
+local comboDamage = text(comboFrame, "Damage", "", 16)
+comboDamage.Position = UDim2.fromOffset(0, 34)
+comboDamage.Size = UDim2.new(1, 0, 0, 18)
+comboDamage.TextXAlignment = Enum.TextXAlignment.Right
+local COMBO_SHOW = 1.5 -- seconds it stays after the combo's last hit
+
+-- Who you last hit, and when (from the server's hit effects).
+local comboTarget: Model? = nil
+local comboAt = -math.huge
+CombatRemotes.Get().Fx.OnClientEvent:Connect(function(info: { [string]: any })
+	if info.type == "Hit" and info.attacker == player.Character and typeof(info.target) == "Instance" and info.target:IsA("Model") then
+		comboTarget = info.target
+		comboAt = os.clock()
+	end
+end)
+
 -- The Lotus meter, above HP: three segments (stage 1 / 2 / 3 at 40 / 80), the stage on the left.
 local lotusBar = bar("Lotus", BAR_W, BAR_H, LOTUS_FILL, "L1", LOTUS_TEXT)
 lotusBar.back.AnchorPoint = Vector2.new(0.5, 1)
@@ -224,19 +264,13 @@ for _, share in { CombatConfig.Stage2At / CombatConfig.LotusMax, CombatConfig.St
 end
 
 local BARS_TOP = HALF_H + 12 + 5 + BAR_H + 6 + BAR_H + 6 + BAR_H + 8
--- The names each Lotus slot shows at stages 1 / 2 / 3.
-local STAGE_NAMES: { [string]: { string } } = {
-	["2"] = { "Stab", "Strand", "Spike" },
-	["3"] = { "Spore", "Spore Fan", "Beam" },
-	["4"] = { "Grab", "Grab", "Feast" },
-}
 
 -- Skill slots.
 local slotRow = Instance.new("Frame")
 slotRow.Name = "Slots"
 slotRow.AnchorPoint = Vector2.new(0.5, 1)
 slotRow.Position = UDim2.new(0.5, 0, 1, -BARS_TOP)
-slotRow.Size = UDim2.fromOffset(#SLOTS * (SLOT + SLOT_GAP) - SLOT_GAP, SLOT + 20)
+slotRow.Size = UDim2.fromOffset(MAX_SLOTS * (SLOT + SLOT_GAP) - SLOT_GAP, SLOT + 20)
 slotRow.BackgroundTransparency = 1
 slotRow.Parent = column
 local layout = Instance.new("UIListLayout")
@@ -259,8 +293,9 @@ type Slot = {
 	ready: boolean,
 }
 local slots: { [string]: Slot } = {}
+local specs: { Loadout.HudSlot } = {}
 
-for i, spec in SLOTS do
+local function makeSlot(i: number, spec: Loadout.HudSlot): Slot
 	local holder = Instance.new("Frame")
 	holder.Name = "Slot_" .. spec.key
 	holder.LayoutOrder = i
@@ -322,20 +357,13 @@ for i, spec in SLOTS do
 	key.TextYAlignment = Enum.TextYAlignment.Top
 	key.ZIndex = 4
 
-	local name = text(holder, "SkillName", spec.name, 13)
+	local name = text(holder, "SkillName", spec.names[1], 13)
 	name.AnchorPoint = Vector2.new(0.5, 0)
 	name.Position = UDim2.new(0.5, 0, 0, SLOT + 2)
 	name.Size = UDim2.fromOffset(SLOT + SLOT_GAP + 20, 16)
 	name.TextWrapped = false
 
-	-- Placeholders are dimmed so it's clear they don't do anything yet.
-	if not spec.live then
-		box.BackgroundTransparency = 0.45
-		key.TextTransparency = 0.25
-		name.TextTransparency = 0.3
-	end
-
-	slots[spec.key] = {
+	return {
 		root = holder,
 		box = box,
 		boxStroke = boxStroke,
@@ -349,16 +377,6 @@ for i, spec in SLOTS do
 	}
 end
 
--- The Moth slot's icon: a tiny lantern (cap, glowing core, base).
-local raceSlot = slots.Ctrl
-local lanternIcon = Instance.new("Frame")
-lanternIcon.Name = "LanternIcon"
-lanternIcon.AnchorPoint = Vector2.new(0.5, 0.5)
-lanternIcon.Position = UDim2.fromScale(0.5, 0.52)
-lanternIcon.Size = UDim2.fromOffset(22, 30)
-lanternIcon.BackgroundTransparency = 1
-lanternIcon.Visible = false
-lanternIcon.Parent = raceSlot.box
 local function block(parent: Instance, x: number, y: number, w: number, h: number, color: Color3): Frame
 	local f = Instance.new("Frame")
 	f.Position = UDim2.fromOffset(x, y)
@@ -368,10 +386,42 @@ local function block(parent: Instance, x: number, y: number, w: number, h: numbe
 	f.Parent = parent
 	return f
 end
-block(lanternIcon, 8, 0, 6, 3, Color3.fromRGB(40, 70, 76)) -- handle
-block(lanternIcon, 3, 3, 16, 4, Color3.fromRGB(24, 48, 54)) -- cap
-local core = block(lanternIcon, 5, 7, 12, 16, MOTH_FILL)
-block(lanternIcon, 3, 23, 16, 4, Color3.fromRGB(24, 48, 54)) -- base
+
+-- The Moth slot's icon: a tiny lantern (cap, glowing core, base). Returns its core.
+local function lanternIcon(slot: Slot): Frame
+	local icon = Instance.new("Frame")
+	icon.Name = "LanternIcon"
+	icon.AnchorPoint = Vector2.new(0.5, 0.5)
+	icon.Position = UDim2.fromScale(0.5, 0.52)
+	icon.Size = UDim2.fromOffset(22, 30)
+	icon.BackgroundTransparency = 1
+	icon.Parent = slot.box
+	slot.icon.Visible = false
+	block(icon, 8, 0, 6, 3, Color3.fromRGB(40, 70, 76)) -- handle
+	block(icon, 3, 3, 16, 4, Color3.fromRGB(24, 48, 54)) -- cap
+	local lanternCore = block(icon, 5, 7, 12, 16, MOTH_FILL)
+	block(icon, 3, 23, 16, 4, Color3.fromRGB(24, 48, 54)) -- base
+	return lanternCore
+end
+
+-- The race slot (Ctrl) and its lantern core, if the build has a Moth.
+local raceSlot: Slot? = nil
+local core: Frame? = nil
+local builtFor = ""
+
+-- (Re)builds the slot row for a build.
+local function buildSlots(build: Loadout.Build)
+	for _, slot in slots do
+		slot.root:Destroy()
+	end
+	table.clear(slots)
+	specs = Loadout.Slots(build)
+	for i, spec in specs do
+		slots[spec.key] = makeSlot(i, spec)
+	end
+	raceSlot = slots.Ctrl
+	core = if raceSlot and build.Race == "Moth" then lanternIcon(raceSlot) else nil
+end
 
 -- Charge bar (replaces the slots while charging).
 local chargeArea = Instance.new("Frame")
@@ -489,6 +539,45 @@ local function update()
 		spBar.left.Text = if burnout then "BURNOUT" else string.format("%d/%d", math.floor(spValue + 0.5), spTop)
 	end
 
+	-- Your build-up and statuses.
+	local buildup = character:GetAttribute("Buildup")
+	buildupStrip.Size = UDim2.new(math.clamp((if typeof(buildup) == "number" then buildup else 0) / CombatConfig.BuildupMax, 0, 1), 0, 0, 3)
+	local statuses = {}
+	if character:GetAttribute("Drafted") == true then
+		table.insert(statuses, '<font color="#D7EBF0">DRAFTED</font>')
+	end
+	if character:GetAttribute("Infested") == true then
+		table.insert(statuses, '<font color="#1098A8">INFESTED</font>')
+	end
+	statusText.Text = table.concat(statuses, "  ")
+
+	-- The combo you're doing: its hits and damage (the target's ComboHits / ComboDamage).
+	local target = comboTarget
+	local showCombo = false
+	if target and target.Parent and os.clock() - comboAt < COMBO_SHOW then
+		local hits = target:GetAttribute("ComboHits")
+		local damage = target:GetAttribute("ComboDamage")
+		if typeof(hits) == "number" and hits >= 2 and typeof(damage) == "number" then
+			showCombo = true
+			comboHits.Text = string.format("%d HITS", hits)
+			comboDamage.Text = string.format("%.1f DMG", damage)
+			comboDamage.TextColor3 = if damage > CombatConfig.BudgetStage3 then Color3.fromRGB(255, 90, 80)
+				elseif damage > CombatConfig.BudgetNormal then Color3.fromRGB(245, 205, 48)
+				else WHITE
+		end
+	end
+	comboFrame.Visible = showCombo
+
+	-- The build: rebuild the slots when it changes.
+	local build = Loadout.BuildOf(character)
+	local key = table.concat({ build.Weapon, build.Secondary, build.Magic, build.Element, build.Race }, "/")
+	if key ~= builtFor then
+		builtFor = key
+		buildSlots(build)
+	end
+	local magic = Loadout.Items[build.Magic]
+	lotusBar.back.Visible = magic ~= nil and magic.meter == "Lotus"
+
 	-- The Lotus meter and the slot names of the current stage.
 	local meter = character:GetAttribute("Lotus")
 	local stage = character:GetAttribute("LotusStage")
@@ -504,16 +593,20 @@ local function update()
 	if lotusBar.right then
 		lotusBar.right.Text = "L" .. stageValue
 	end
-	for key, names in STAGE_NAMES do
-		slots[key].name.Text = names[math.clamp(stageValue, 1, 3)]
+	for _, spec in specs do
+		-- One name per stage (Lotus), else the one name.
+		slots[spec.key].name.Text = spec.names[math.clamp(stageValue, 1, #spec.names)]
 	end
-	local formReady = meterValue >= CombatConfig.LotusMax and not form
-	slots.G.boxStroke.Color = if formReady then LOTUS_TEXT else SLOT_BORDER
-	slots.G.boxStroke.Thickness = if formReady then 2 else 1
+	local formSlot = if magic and magic.meter == "Lotus" then slots.G else nil
+	if formSlot then
+		local formReady = meterValue >= CombatConfig.LotusMax and not form
+		formSlot.boxStroke.Color = if formReady then LOTUS_TEXT else SLOT_BORDER
+		formSlot.boxStroke.Thickness = if formReady then 2 else 1
+	end
 
 	-- Weapon / secondary / magic cooldowns.
 	local combat = CombatClient.Get(character)
-	for _, spec in SLOTS do
+	for _, spec in specs do
 		local group = spec.cooldown
 		if group then
 			local slot = slots[spec.key]
@@ -545,10 +638,8 @@ local function update()
 	local isMoth = moth ~= nil and moth:IsMoth()
 	mothBar.back.Visible = isMoth
 	mothLabel.Visible = isMoth
-	lanternIcon.Visible = isMoth
-	raceSlot.icon.Visible = not isMoth
 	local charging = false
-	if moth and isMoth then
+	if moth and isMoth and raceSlot and core then
 		local left, total = moth:GetMothCooldown()
 		setFill(mothBar, 1 - left / math.max(total, 1e-3))
 		local ready = left <= 0
@@ -586,13 +677,6 @@ local function update()
 		if charging then
 			setFill(chargeBar, moth:GetCharge())
 		end
-	else
-		raceSlot.name.Text = "Race"
-		raceSlot.status.Text = ""
-		raceSlot.timer.Text = ""
-		raceSlot.shade.Size = UDim2.fromScale(1, 0)
-		raceSlot.boxStroke.Color = SLOT_BORDER
-		raceSlot.boxStroke.Thickness = 1
 	end
 	slotRow.Visible = not charging
 	chargeArea.Visible = charging

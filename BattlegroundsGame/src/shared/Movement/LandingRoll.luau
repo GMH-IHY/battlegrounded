@@ -27,16 +27,14 @@
 --   the way the camera looks. Your landing speed is redirected that way (turning past 45
 --   degrees from your momentum costs some of it, see LandingRollTurnKeep).
 --
--- Animation: plays "LandingRoll" if it exists (AnimationConfig.Ids or a Studio KeyframeSequence);
+-- Animation: plays "LandingRoll" if it exists (a local KeyframeSequence in AnimationConfig.Names);
 -- otherwise the normal movement animations show. Attribute "Rolling" is true during the roll.
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(script.Parent.MovementConfig)
 local Perf = require(script.Parent.Perf)
-local AnimConfig = require(script.Parent.AnimationConfig)
 local CharacterMotor = require(script.Parent.CharacterMotor)
 local AnimationLibrary = require(script.Parent.AnimationLibrary)
 
@@ -102,15 +100,7 @@ export type LandingRoll = typeof(setmetatable({} :: LandingRollData, LandingRoll
 local active: { [Model]: LandingRoll } = {}
 
 local function animationExists(name: string): boolean
-	local id = AnimConfig.Ids[name]
-	if id and id ~= "" then
-		return true
-	end
-	if RunService:IsStudio() then
-		local folder = ReplicatedStorage:FindFirstChild(AnimConfig.StudioAnimationsFolder)
-		return folder ~= nil and folder:FindFirstChild(name) ~= nil
-	end
-	return false
+	return AnimationLibrary.Exists(name)
 end
 
 -- `isBlocked` returns true while something else owns the character (a dash, a wall run).

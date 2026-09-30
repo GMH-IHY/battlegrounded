@@ -6,12 +6,25 @@
 -- reports them here (Sfx module); this sends them to every OTHER player so they hear them on that
 -- character. Only names in SoundConfig, sane numbers, positions near the character, and a rate
 -- limit per player (a bad client can't spam everyone's speakers).
+-- Studio: lists the audio files that have no Sound in ReplicatedStorage > Sounds yet (sounds are
+-- local for now: import the audio folder into Studio once).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 ReplicatedStorage:WaitForChild("Movement"):WaitForChild("SoundConfig")
 local SoundConfig = require(ReplicatedStorage.Movement.SoundConfig)
+local Sfx = require(ReplicatedStorage.Movement.Sfx)
+
+if game:GetService("RunService"):IsStudio() then
+	task.defer(function()
+		local missing = Sfx.Missing()
+		if #missing > 0 then
+			warn(string.format("[Sfx] %d audio file(s) have no Sound in ReplicatedStorage > Sounds (import them in Studio): %s",
+				#missing, table.concat(missing, ", ")))
+		end
+	end)
+end
 
 local MAX_PER_SECOND = 30 -- one-shots + loop changes per player
 local MAX_POINT_DISTANCE = 160 -- a one-shot "at" position may be this far from the character

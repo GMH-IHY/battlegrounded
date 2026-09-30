@@ -38,7 +38,6 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(script.Parent.MovementConfig)
-local AnimConfig = require(script.Parent.AnimationConfig)
 local AnimationLibrary = require(script.Parent.AnimationLibrary)
 local CharacterMotor = require(script.Parent.CharacterMotor)
 local Stamina = require(script.Parent.Stamina)
@@ -113,15 +112,7 @@ local function turnTowards(from: Vector3, to: Vector3, maxAngle: number): Vector
 end
 
 local function animationExists(name: string): boolean
-	local id = AnimConfig.Ids[name]
-	if id and id ~= "" then
-		return true
-	end
-	if RunService:IsStudio() then
-		local folder = ReplicatedStorage:FindFirstChild(AnimConfig.StudioAnimationsFolder)
-		return folder ~= nil and folder:FindFirstChild(name) ~= nil
-	end
-	return false
+	return AnimationLibrary.Exists(name)
 end
 
 local function remote(name: string): Instance?

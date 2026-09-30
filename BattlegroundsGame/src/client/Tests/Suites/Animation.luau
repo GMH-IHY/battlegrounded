@@ -23,14 +23,14 @@ local tests: { Harness.Test } = {
 		run = function(t)
 			local missing = {}
 			local count = 0
-			for name in AnimationConfig.Ids do
+			for name in AnimationConfig.Names do
 				count += 1
 				if not AnimationLibrary.Get(name) then
 					table.insert(missing, name)
 				end
 			end
 			table.sort(missing)
-			t:check("all of AnimationConfig.Ids", #missing == 0,
+			t:check("all of AnimationConfig.Names", #missing == 0,
 				if #missing == 0 then string.format("%d animations", count) else "missing: " .. table.concat(missing, ", "))
 		end,
 	},

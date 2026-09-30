@@ -157,3 +157,15 @@ Both redirect projectiles inside the cone and add +25 status build-up.
 3. **Slow-build starter:** dagger → 1 → any ability.
 4. **Stage 3 finish:** M1 → 1 → stage 3 grab (≈ 31 after scaling).
 5. **Drafted route:** win exchanges until Drafted → higher launch → longer air combo.
+
+`python tools/combo.py` replays these routes with the server's rules (scaling, linker, counter-hit, rounding) and checks each against its budget; `python tools/combo.py "M1_1 > One > Grab3"` checks any route (`!` = counter-hit, `x3` = three hits, `--stage3` = the target is at Lotus stage 3). The pytest suite runs them too. Current results:
+
+| Route | Damage | Budget |
+| --- | --- | --- |
+| Ground starter (M1 → 1 → spore → M1 × 3) | 20.4 | Normal 20: **just over** |
+| Air route (M1, M1, launcher → air 1 → air slash → spike → M1) | 21.4 | Normal 20: **just over** |
+| Slow-build starter (dagger → 1 → stage 1 grab) | 16.4 | Normal 20 |
+| Stage 3 finish (M1 → 1 → stage 3 grab) | 31.0 | Stage 3: 35 |
+| Drafted route (the air route with two more air M1s) | 23.1 | Stage 3: 35 |
+
+The two over-budget routes need a balance decision (for example a slightly lower sword 1, or scaling from the 3rd hit); until then the tests list them as known.

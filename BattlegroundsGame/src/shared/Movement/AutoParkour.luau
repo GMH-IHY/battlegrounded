@@ -47,18 +47,16 @@
 -- jumping during parkour.
 --
 -- Animations: plays "Vault" (also for a step-up), "LedgeClimb" and "Slide" if they exist
--- (AnimationConfig.Ids or a Studio KeyframeSequence). Attribute "Parkour" = the action while it
+-- (a local KeyframeSequence in AnimationConfig.Names). Attribute "Parkour" = the action while it
 -- runs. NOTE: the slide lean is set on this client only (joint changes don't replicate); other
 -- players will need it replicated once multiplayer visuals are done.
 
 local PhysicsService = game:GetService("PhysicsService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(script.Parent.MovementConfig)
 local Perf = require(script.Parent.Perf)
-local AnimConfig = require(script.Parent.AnimationConfig)
 local CharacterMotor = require(script.Parent.CharacterMotor)
 local AnimationLibrary = require(script.Parent.AnimationLibrary)
 
@@ -103,15 +101,7 @@ local function isCharacterPart(instance: Instance): boolean
 end
 
 local function animationExists(name: string): boolean
-	local id = AnimConfig.Ids[name]
-	if id and id ~= "" then
-		return true
-	end
-	if RunService:IsStudio() then
-		local folder = ReplicatedStorage:FindFirstChild(AnimConfig.StudioAnimationsFolder)
-		return folder ~= nil and folder:FindFirstChild(name) ~= nil
-	end
-	return false
+	return AnimationLibrary.Exists(name)
 end
 
 local function slideGroupReady(): boolean

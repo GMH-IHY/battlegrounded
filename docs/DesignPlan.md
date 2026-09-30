@@ -174,7 +174,7 @@ Each phase ends with a Studio playtest and a commit.
 | 2. Combat core + Sword + Dagger | State machine, move runner, hits / block / parry / counter-hit, stamina and burnout, get-up, juggle limit, scaling, status build-up, warning flashes, hit pause and screen shake, training dummy, sword and dagger models and moves. **Built Sep 29, waiting on a Studio playtest.** |
 | 3. Lotus Fungus | Meter and stages, every 2 / 3 / 4 variant, R and G, fungus arm and body growth, infection wrap and burst, the opponent's reactions. **Built Sep 29, waiting on a Studio playtest** (sounds are placeholders; the follow-up rules are a first draft). |
 | 4. Wind + Moth | Q push / pull and Drafted; lantern rework and flight in your own light. **Built Sep 30, waiting on a Studio playtest** (Wind sounds are placeholders). |
-| 5. HUD & balance tools | HUD tied to the loadout, stage meter, status bars over heads, cooldowns; combo damage checker. |
+| 5. HUD & balance tools | HUD tied to the loadout, stage meter, status bars over heads, cooldowns; combo damage checker. **Built Sep 30, waiting on a Studio playtest.** Two example routes are just over the normal budget (see MoveData). |
 
 ## Open questions
 

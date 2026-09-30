@@ -43,16 +43,14 @@
 --
 -- Animations: plays "WallRunRight" / "WallRunLeft" while running and "WallHopRight" /
 -- "WallHopLeft" on the kick, by which side the wall is on (Right = wall on your right). Each loads
--- only if it exists (AnimationConfig.Ids or a Studio KeyframeSequence); without it the normal
+-- only if it exists (a local KeyframeSequence in AnimationConfig.Names); without it the normal
 -- jump / fall animations show.
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(script.Parent.MovementConfig)
 local Perf = require(script.Parent.Perf)
-local AnimConfig = require(script.Parent.AnimationConfig)
 local CharacterMotor = require(script.Parent.CharacterMotor)
 local AnimationLibrary = require(script.Parent.AnimationLibrary)
 local Sfx = require(script.Parent.Sfx)
@@ -112,15 +110,7 @@ local active: { [Model]: WallHop } = {}
 
 -- Only loads animations that actually exist, so a missing one doesn't spam warnings.
 local function animationExists(name: string): boolean
-	local id = AnimConfig.Ids[name]
-	if id and id ~= "" then
-		return true
-	end
-	if RunService:IsStudio() then
-		local folder = ReplicatedStorage:FindFirstChild(AnimConfig.StudioAnimationsFolder)
-		return folder ~= nil and folder:FindFirstChild(name) ~= nil
-	end
-	return false
+	return AnimationLibrary.Exists(name)
 end
 
 -- `isBlocked` returns true while something else owns the character (a dash, an attack).

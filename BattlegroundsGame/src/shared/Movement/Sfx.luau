@@ -12,9 +12,9 @@
 --                                                            (on = "Lantern": follows the lantern)
 --   Sfx.SetLoop(character, name, speed?, volume?)           change a running loop (throttled relay)
 --
--- A name with no asset Id yet uses a Sound in ReplicatedStorage > Sounds named like it OR like its
--- source file (e.g. "universeDash", which is what importing the audio folder in Studio makes), otherwise
--- it's skipped quietly (one warning per name in Studio).
+-- Sounds are local: a Sound in ReplicatedStorage > Sounds named like the entry OR like its source
+-- file (e.g. "universeDash", which is what importing the audio folder in Studio makes); a missing one
+-- is skipped quietly (Sfx.Missing lists them; SfxServer prints the list in Studio).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -54,34 +54,62 @@ local function remote(name: string): Instance?
 	return if folder then folder:FindFirstChild(name) else nil
 end
 
--- The SoundId / volume / speed to use for `name`, or nil if it has no sound yet.
+-- The Sound in ReplicatedStorage > Sounds for a SoundConfig entry (by its name, or by its file name
+-- without the extension, searched in subfolders too), and whether it was found by the entry's name.
+local function template(name: string): (Sound?, boolean)
+	local entry = SoundConfig[name]
+	local folder = ReplicatedStorage:FindFirstChild("Sounds")
+	if not entry or not folder then
+		return nil, false
+	end
+	local byName = folder:FindFirstChild(name)
+	if byName and byName:IsA("Sound") and byName.SoundId ~= "" then
+		return byName, true
+	end
+	local stem = string.match(entry.File, "^(.-)%.[^.]+$") or entry.File
+	local byFile = folder:FindFirstChild(stem, true)
+	if byFile and byFile:IsA("Sound") and byFile.SoundId ~= "" then
+		return byFile, false
+	end
+	return nil, false
+end
+
+-- The SoundId / volume / speed to use for `name`, or nil if it has no sound in the place.
+-- A Sound named like the entry keeps its own volume / speed; one found by file name uses
+-- SoundConfig's.
 local function resolve(name: string): (string?, number, number)
 	local entry = SoundConfig[name]
 	if not entry then
 		return nil, 0, 1
 	end
-	local speed = entry.Speed or 1
-	if entry.Id ~= "" then
-		return entry.Id, entry.Volume, speed
-	end
-	-- ReplicatedStorage > Sounds: a Sound named like the entry (its own volume / speed win), or
-	-- named like the source file without extension (what Studio's bulk import + Insert creates, e.g.
-	-- "universeDash"; SoundConfig's volume / speed are used then).
-	local folder = ReplicatedStorage:FindFirstChild("Sounds")
-	local template = folder and folder:FindFirstChild(name)
-	if template and template:IsA("Sound") and template.SoundId ~= "" then
-		return template.SoundId, template.Volume, template.PlaybackSpeed
-	end
-	local stem = string.match(entry.File, "^(.-)%.[^.]+$") or entry.File
-	local byFile = folder and folder:FindFirstChild(stem, true)
-	if byFile and byFile:IsA("Sound") and byFile.SoundId ~= "" then
-		return byFile.SoundId, entry.Volume, speed
+	local sound, own = template(name)
+	if sound then
+		if own then
+			return sound.SoundId, sound.Volume, sound.PlaybackSpeed
+		end
+		return sound.SoundId, entry.Volume, entry.Speed or 1
 	end
 	if not warned[name] and RunService:IsStudio() then
 		warned[name] = true
-		warn(string.format("[Sfx] no sound for %q yet (SoundConfig Id empty, no ReplicatedStorage.Sounds.%s)", name, name))
+		warn(string.format("[Sfx] no sound for %q (no ReplicatedStorage.Sounds.%s or %s)", name, name, entry.File))
 	end
 	return nil, 0, 1
+end
+
+-- The source files with no Sound in ReplicatedStorage > Sounds yet (sorted, each once).
+function Sfx.Missing(): { string }
+	local files: { [string]: boolean } = {}
+	for name, entry in SoundConfig do
+		if not template(name) then
+			files[entry.File] = true
+		end
+	end
+	local out = {}
+	for file in files do
+		table.insert(out, file)
+	end
+	table.sort(out)
+	return out
 end
 
 local function rootOf(character: Model): BasePart?

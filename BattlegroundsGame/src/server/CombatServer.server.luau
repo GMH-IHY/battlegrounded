@@ -28,6 +28,7 @@ local CombatRemotes = require(Combat:WaitForChild("CombatRemotes"))
 local WeaponModels = require(Combat:WaitForChild("WeaponModels"))
 local FighterCollision = require(Combat:WaitForChild("FighterCollision"))
 local FungusParts = require(Combat:WaitForChild("FungusParts"))
+local Loadout = require(Combat:WaitForChild("Loadout"))
 local Config = require(Combat:WaitForChild("CombatConfig"))
 local MovementConfig = require(ReplicatedStorage:WaitForChild("Movement"):WaitForChild("MovementConfig"))
 
@@ -135,8 +136,11 @@ local function onCharacter(player: Player, character: Model)
 	if not character.Parent then
 		return
 	end
-	if character:GetAttribute("Element") == nil then
-		character:SetAttribute("Element", "Wind")
+	-- The build (Loadout.BuildOf reads these; the race comes from RaceServer).
+	for _, lane in { "Weapon", "Secondary", "Element" } do
+		if character:GetAttribute(lane) == nil then
+			character:SetAttribute(lane, (Loadout.Default :: any)[lane])
+		end
 	end
 	local ok, err = pcall(WeaponModels.Attach, character)
 	if not ok then
@@ -147,7 +151,7 @@ local function onCharacter(player: Player, character: Model)
 	if not grown then
 		warn("[Combat] couldn't grow the fungus: " .. tostring(why))
 	end
-	character:SetAttribute("Magic", "Lotus")
+	character:SetAttribute("Magic", Loadout.Default.Magic)
 	FighterCollision.Apply(character)
 	fighters[character] = Fighter.new(character, player, hooks)
 	character.AncestryChanged:Connect(function()

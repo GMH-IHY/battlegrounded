@@ -82,6 +82,13 @@ local CombatConfig = {
 	-- beyond is ignored.
 	StaminaSpendRateLimit = 120,
 
+	-- DAMAGE BUDGET (docs/DesignPlan.md): a normal confirm does about 15-20, the best stage 3 confirm
+	-- at most 35, anything with an ultimate at most 45 (of 100 HP). The HUD's combo counter turns
+	-- yellow / red past these; tools/combo.py checks the example routes against them.
+	BudgetNormal = 20,
+	BudgetStage3 = 35,
+	BudgetMax = 45,
+
 	-- STATUS BUILD-UP ------------------------------------------------------------------------------
 	-- Each fighter has a bar for the element of whoever builds it. Winning exchanges fill it.
 	BuildupMax = 100,
