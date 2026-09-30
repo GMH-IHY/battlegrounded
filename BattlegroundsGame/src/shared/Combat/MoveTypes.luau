@@ -11,6 +11,9 @@
 --   OnHit                         Kind: Stun (Stun frames; Hang = the target hangs in the air),
 --                                 Knockdown (knocked back Knockback studs), Launch (sent Launch studs
 --                                 up), Spike (driven into the floor). Knockback on a Stun = pushback.
+--                                 Push / Pull (Wind): a stagger of Stun frames that also carries the
+--                                 target Knockback studs away / to Knockback studs in front of you,
+--                                 on the ground or in the air, and even through a block.
 --   OnBlock                       frame advantage when blocked (+ = the attacker acts first).
 --   Guard                         Normal, Unblockable (yellow flash: parry it) or Unparryable (blue
 --                                 flash: can't be blocked or parried, dash out of the way).
@@ -49,10 +52,15 @@
 --                                 landing a hit (CombatConfig)
 --   CounterStun                   hit stun on a counter-hit, replacing the usual bonus
 --   RefundOnCounter               a counter-hit gives the meter cost back (stage 3 stab)
+--
+-- Element moves (Wind) add:
+--   Element                       which element (its Q)
+--   Redirect                      projectiles inside the hitbox turn to fly where you face, and
+--                                 become yours
 
 export type Guard = "Normal" | "Unblockable" | "Unparryable"
-export type HitKind = "Stun" | "Knockdown" | "Launch" | "Spike" | "Grab" | "Impale" | "None"
-export type Slot = "M1" | "M2" | "One" | "Two" | "Three" | "Four" | "R" | "G"
+export type HitKind = "Stun" | "Knockdown" | "Launch" | "Spike" | "Grab" | "Impale" | "Push" | "Pull" | "None"
+export type Slot = "M1" | "M2" | "One" | "Two" | "Three" | "Four" | "R" | "G" | "Q"
 export type Arc =
 	"Flat"
 	| "Backhand"
@@ -69,6 +77,9 @@ export type Arc =
 	| "Spore"
 	| "Beam"
 	| "Grab"
+	-- Wind (CombatFx draws the gust)
+	| "Gust"
+	| "Draw"
 	| "None"
 
 export type Hitbox = { Size: Vector3, Forward: number, Up: number }
@@ -128,6 +139,9 @@ export type Move = {
 	FollowUpReach: number,
 	CounterStun: number?,
 	RefundOnCounter: boolean,
+	-- Element.
+	Element: string?,
+	Redirect: boolean,
 }
 
 local MoveTypes = {}
@@ -208,6 +222,8 @@ function MoveTypes.Define(t: { [string]: any }): Move
 		FollowUpReach = t.FollowUpReach or 0,
 		CounterStun = t.CounterStun,
 		RefundOnCounter = t.RefundOnCounter == true,
+		Element = t.Element,
+		Redirect = t.Redirect == true,
 	}
 	assert(move.Id and move.Slot and move.Animation and move.Startup and move.Damage, "MoveTypes.Define: incomplete move")
 	return move

@@ -182,7 +182,7 @@ function LanternPhysics.cast(from: Vector3, delta: Vector3, casts: Casts): Hit?
 end
 
 -- The whole predicted flight (for the preview): points every step until it hits something or
--- `maxTime` runs out. Returns (points, hit?).
+-- `maxTime` runs out (the last point is exactly at maxTime). Returns (points, hit?).
 function LanternPhysics.predict(
 	origin: Vector3,
 	velocity: Vector3,
@@ -195,7 +195,7 @@ function LanternPhysics.predict(
 	local prev = origin
 	local t = 0
 	while t < maxTime do
-		t += step
+		t = math.min(t + step, maxTime) -- the real throw stops exactly at maxTime too
 		local pos = LanternPhysics.at(origin, velocity, gravity, t)
 		local hit = LanternPhysics.cast(prev, pos - prev, casts)
 		if hit then

@@ -74,6 +74,9 @@ local AnimationConfig = {
 		Downed = "",
 		GetUp = "",
 		TechRoll = "",
+		-- Wind (MoveSets > Wind): the Q push and pull.
+		WindPush = "",
+		WindPull = "",
 		-- Lotus Fungus (MoveSets > Lotus): the fungus arm, being held, being consumed.
 		LotusStab = "",
 		LotusStrand = "",

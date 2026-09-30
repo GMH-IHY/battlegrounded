@@ -6,11 +6,10 @@
 -- the right hand while charging a throw) and keeps it where the owner's client says while it's out
 -- (the owner simulates it: LanternState + LanternSync). The model carries what other clients need
 -- to draw it smoothly (LanternViewer): tag "MothLantern", attributes OwnerUserId, State, the throw's
--- start values (ThrowOrigin / ThrowVelocity / ThrowGravity / ThrowStart, server time) and the
--- impact flash (BurstAt / BurstId, from LanternBurst).
--- Hits (LanternHit, kind "Direct" or "Burst") are checked: a direct hit deals LanternDamage and tags;
--- a burst only tags, and only if the flash point can see the target. Tags = attributes
--- LanternTaggedBy / LanternTagUntil plus a blue outline and marker everyone sees.
+-- start values (ThrowOrigin / ThrowVelocity / ThrowGravity / ThrowStart, server time / ThrowStop,
+-- seconds until it stops) and the flash where it starts hanging (BurstAt / BurstId).
+-- The lantern does no damage. CombatServer knocks it down when an attack touches it (KnockId, and
+-- LockUntil = server time until it can be thrown again); throws before then are refused.
 -- The lantern is only ever moved here while it's loose: re-pivoting it while it's welded to the
 -- character would drag the whole character.
 
@@ -32,7 +31,6 @@ local HIP_OFFSET = CFrame.new(1.18, -0.95, -0.05) * CFrame.Angles(0, 0, math.rad
 local DARK = Color3.fromRGB(16, 38, 44)
 local CORE_OFF = Color3.fromRGB(46, 110, 118)
 local GLOW = Color3.fromRGB(120, 240, 255)
-local TAG_COLOR = Color3.fromRGB(80, 200, 255)
 -- How far from its owner a reported lantern position may be (studs).
 local MAX_SYNC_DISTANCE = Config.LanternThrowRangeMax + Config.LanternLightRadius + 80
 local MIN_THROW_INTERVAL = 0.25
@@ -52,23 +50,19 @@ stateRemote.Parent = remotes
 local syncRemote = Instance.new("UnreliableRemoteEvent")
 syncRemote.Name = "LanternSync"
 syncRemote.Parent = remotes
-local hitRemote = Instance.new("RemoteEvent")
-hitRemote.Name = "LanternHit"
-hitRemote.Parent = remotes
-local burstRemote = Instance.new("RemoteEvent")
-burstRemote.Name = "LanternBurst"
-burstRemote.Parent = remotes
 
--- Slack for hit checks (studs): people move while the hit travels to the server.
-local DIRECT_HIT_SLACK = 7
-local BURST_HIT_SLACK = 4
+local STATES: { [string]: boolean } = {
+	Hip = true,
+	Charging = true,
+	Thrown = true,
+	Suspended = true,
+	Dropped = true,
+	Returning = true,
+}
 
 type Info = {
 	state: string,
 	lastThrow: number,
-	hitTargets: { [Model]: boolean },
-	burstDone: boolean,
-	burstAt: Vector3?,
 }
 local info: { [Player]: Info } = {}
 
@@ -232,7 +226,7 @@ local function giveLantern(player: Player, character: Model)
 	end
 	model.Parent = character
 	playerLanterns[player] = model
-	info[player] = { state = "Hip", lastThrow = -math.huge, hitTargets = {}, burstDone = false, burstAt = nil }
+	info[player] = { state = "Hip", lastThrow = -math.huge }
 end
 
 local function onCharacter(player: Player, character: Model)
@@ -293,13 +287,19 @@ stateRemote.OnServerEvent:Connect(function(player: Player, state: unknown, posit
 	if not data or not model or not core then
 		return
 	end
-	if state ~= "Hip" and state ~= "Charging" and state ~= "Thrown" and state ~= "Suspended" and state ~= "Dropped" then
+	if not STATES[state] then
 		return
 	end
+	local serverNow = Workspace:GetServerTimeNow()
 	if state == "Thrown" then
 		local now = os.clock()
 		if now - data.lastThrow < MIN_THROW_INTERVAL then
 			reject(player, "throwing too fast")
+			return
+		end
+		local lockUntil = model:GetAttribute("LockUntil")
+		if typeof(lockUntil) == "number" and lockUntil > serverNow + 0.25 then
+			reject(player, "thrown while knocked down")
 			return
 		end
 		-- The throw's start values, for other clients to replay the arc.
@@ -308,8 +308,9 @@ stateRemote.OnServerEvent:Connect(function(player: Player, state: unknown, posit
 			return
 		end
 		local t = throw :: { [string]: unknown }
-		local origin, velocity, gravity, start = t.origin, t.velocity, t.gravity, t.start
-		if typeof(origin) ~= "Vector3" or typeof(velocity) ~= "Vector3" or typeof(gravity) ~= "number" or typeof(start) ~= "number" then
+		local origin, velocity, gravity, start, stop = t.origin, t.velocity, t.gravity, t.start, t.stop
+		if typeof(origin) ~= "Vector3" or typeof(velocity) ~= "Vector3" or typeof(gravity) ~= "number" or typeof(start) ~= "number"
+			or typeof(stop) ~= "number" then
 			reject(player, "bad throw values")
 			return
 		end
@@ -319,16 +320,14 @@ stateRemote.OnServerEvent:Connect(function(player: Player, state: unknown, posit
 			reject(player, "impossible throw")
 			return
 		end
-		local serverNow = Workspace:GetServerTimeNow()
 		model:SetAttribute("ThrowOrigin", origin)
 		model:SetAttribute("ThrowVelocity", velocity)
 		model:SetAttribute("ThrowGravity", expectedGravity)
 		model:SetAttribute("ThrowStart", math.clamp(start, serverNow - 1, serverNow))
+		model:SetAttribute("ThrowStop", math.clamp(stop, 0, Config.LanternMaxFlightTime))
 		data.lastThrow = now
-		data.hitTargets = {}
-		data.burstDone = false
-		data.burstAt = nil
 	end
+	local previous = data.state
 	data.state = state
 	model:SetAttribute("State", state)
 	local mount = if state == "Hip" then "Hip" elseif state == "Charging" then "Hand" else nil
@@ -339,6 +338,11 @@ stateRemote.OnServerEvent:Connect(function(player: Player, state: unknown, posit
 	if state == "Dropped" then
 		core.Material = Enum.Material.SmoothPlastic
 		core.Color = CORE_OFF
+	end
+	if state == "Suspended" and previous ~= "Suspended" and nearOwner(player, position) then
+		-- It stopped and lit up: everyone else sees the flash (LanternViewer).
+		model:SetAttribute("BurstAt", position)
+		model:SetAttribute("BurstId", ((model:GetAttribute("BurstId") :: number?) or 0) + 1)
 	end
 	local sphereRef = model:FindFirstChild("LightSphereRef") :: ObjectValue?
 	local sphere = if sphereRef and sphereRef.Value and sphereRef.Value:IsA("BasePart") then sphereRef.Value else nil
@@ -354,159 +358,5 @@ syncRemote.OnServerEvent:Connect(function(player: Player, position: unknown)
 	end
 	if nearOwner(player, position) then
 		place(player, position)
-	end
-end)
-
--- A clear "tagged" mark everyone sees: blue outline + a lantern marker over the head, for
--- LanternTagTime (a new hit restarts it).
-local function markTagged(target: Model)
-	local old = target:FindFirstChild("LanternTagMark")
-	if old then
-		old:Destroy()
-	end
-	local mark = Instance.new("Folder")
-	mark.Name = "LanternTagMark"
-	local highlight = Instance.new("Highlight")
-	highlight.FillColor = TAG_COLOR
-	highlight.FillTransparency = 0.7
-	highlight.OutlineColor = TAG_COLOR
-	highlight.OutlineTransparency = 0
-	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-	highlight.Adornee = target
-	highlight.Parent = mark
-	local head = target:FindFirstChild("Head")
-	if head and head:IsA("BasePart") then
-		local billboard = Instance.new("BillboardGui")
-		billboard.Size = UDim2.fromOffset(34, 34)
-		billboard.StudsOffset = Vector3.new(0, 2.6, 0)
-		billboard.AlwaysOnTop = true
-		billboard.Adornee = head
-		local diamond = Instance.new("Frame")
-		diamond.AnchorPoint = Vector2.new(0.5, 0.5)
-		diamond.Position = UDim2.fromScale(0.5, 0.5)
-		diamond.Size = UDim2.fromScale(0.62, 0.62)
-		diamond.Rotation = 45
-		diamond.BackgroundColor3 = TAG_COLOR
-		diamond.BorderColor3 = Color3.fromRGB(10, 24, 28)
-		diamond.BorderSizePixel = 3
-		diamond.Parent = billboard
-		billboard.Parent = mark
-	end
-	mark.Parent = target
-	task.delay(Config.LanternTagTime, function()
-		if mark.Parent then
-			mark:Destroy()
-		end
-	end)
-end
-
--- Solid things between two points? (Characters and lanterns don't block.)
-local function lineClear(a: Vector3, b: Vector3): boolean
-	local ignore: { Instance } = {}
-	for _, p in Players:GetPlayers() do
-		if p.Character then
-			table.insert(ignore, p.Character)
-		end
-	end
-	for _, child in Workspace:GetChildren() do
-		if child:IsA("Model") and child:FindFirstChildOfClass("Humanoid") then
-			table.insert(ignore, child)
-		end
-	end
-	for _, lantern in CollectionService:GetTagged("MothLantern") do
-		table.insert(ignore, lantern)
-	end
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = ignore
-	params.RespectCanCollide = true
-	return Workspace:Raycast(a, b - a, params) == nil
-end
-
--- The impact flash: shown to everyone (LanternViewer plays it from these attributes).
-burstRemote.OnServerEvent:Connect(function(player: Player, at: unknown)
-	local data = info[player]
-	local model = lanternOf(player)
-	if not data or not model or typeof(at) ~= "Vector3" then
-		return
-	end
-	if data.burstDone or (data.state ~= "Thrown" and data.state ~= "Dropped") then
-		reject(player, "burst not from a throw")
-		return
-	end
-	if not nearOwner(player, at) then
-		reject(player, "burst too far away")
-		return
-	end
-	data.burstDone = true
-	data.burstAt = at
-	model:SetAttribute("BurstAt", at)
-	model:SetAttribute("BurstId", ((model:GetAttribute("BurstId") :: number?) or 0) + 1)
-end)
-
-hitRemote.OnServerEvent:Connect(function(player: Player, target: unknown, at: unknown, kind: unknown)
-	local data = info[player]
-	if not data or typeof(target) ~= "Instance" or not target:IsA("Model") or typeof(at) ~= "Vector3" then
-		reject(player, "bad hit arguments")
-		return
-	end
-	if kind ~= "Direct" and kind ~= "Burst" then
-		reject(player, "bad hit kind")
-		return
-	end
-	local character = player.Character
-	if not character or target == character or not target:IsDescendantOf(workspace) then
-		reject(player, "bad target")
-		return
-	end
-	if data.state ~= "Thrown" and data.state ~= "Dropped" then
-		reject(player, "not a fresh throw")
-		return
-	end
-	if data.hitTargets[target] then
-		reject(player, "already hit this target")
-		return
-	end
-	local root = character:FindFirstChild("HumanoidRootPart")
-	local targetHumanoid = target:FindFirstChildOfClass("Humanoid")
-	local targetRoot = target:FindFirstChild("HumanoidRootPart")
-	if not root or not root:IsA("BasePart") or not targetHumanoid or targetHumanoid.Health <= 0 then
-		reject(player, "target not alive")
-		return
-	end
-	if not targetRoot or not targetRoot:IsA("BasePart") then
-		reject(player, "target has no root")
-		return
-	end
-	if not nearOwner(player, at) then
-		reject(player, "hit too far from the thrower")
-		return
-	end
-	local gap = (at - targetRoot.Position).Magnitude
-	if kind == "Direct" then
-		if gap > DIRECT_HIT_SLACK then
-			reject(player, string.format("direct hit %.1f studs from the target", gap))
-			return
-		end
-	else
-		if gap > Config.LanternBurstRadius + BURST_HIT_SLACK then
-			reject(player, string.format("burst %.1f studs from the target", gap))
-			return
-		end
-		if not lineClear(at, targetRoot.Position) then
-			reject(player, "burst can't see the target")
-			return
-		end
-	end
-	data.hitTargets[target] = true
-	if kind == "Direct" then
-		targetHumanoid:TakeDamage(Config.LanternDamage)
-	end
-	target:SetAttribute("LanternTaggedBy", player.UserId)
-	target:SetAttribute("LanternTagUntil", workspace:GetServerTimeNow() + Config.LanternTagTime)
-	markTagged(target)
-	if IS_STUDIO then
-		print(string.format("[Lantern] %s %s %s%s", player.Name, if kind == "Direct" then "hit" else "flash-tagged", target.Name,
-			if kind == "Direct" then string.format(" for %d", Config.LanternDamage) else ""))
 	end
 end)

@@ -232,13 +232,12 @@ local function onFrame(dt: number)
 	local lanternText = "Lantern: -"
 	if lantern and lantern:IsMoth() then
 		local flight = lantern:GetFlight()
-		local tag = lantern:GetTagTarget()
 		local extra = if lantern:GetState() == "Charging"
 			then string.format(" %d%%", math.floor(lantern:GetCharge() * 100 + 0.5))
-			elseif lantern:GetGrabCooldown() > 0 then string.format(" (throw in %.1fs)", lantern:GetGrabCooldown())
+			elseif lantern:GetThrowLockout() > 0 then string.format(" (throw in %.1fs)", lantern:GetThrowLockout())
 			else ""
 		lanternText = string.format("Lantern: %s%s%s", lantern:GetState(), if lantern:IsResting() then " (lying)" else "", extra)
-			.. (if tag then colour("  tagged " .. tag.Name, YELLOW) else "")
+			.. (if lantern:InsideLight() then colour("  in its light", YELLOW) else "")
 			.. "\n"
 			.. (if flight
 				then colour(string.format("Flying %s  %.0f studs/s  turn %.0f deg/s", flight, lantern:GetSpeed(), lantern:GetTurnRate()), YELLOW)

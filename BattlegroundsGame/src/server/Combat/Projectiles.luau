@@ -143,6 +143,44 @@ local function finish(index: number, shot: Shot)
 	shot.owner.hooks.fx({ type = "ProjectileEnd", id = shot.id, position = shot.position })
 end
 
+-- Wind: every shot inside the box that `by` doesn't own turns to fly where `by` faces (flat), with
+-- its range restarted, and becomes `by`'s (it can hit its old owner now).
+function Projectiles.Redirect(by: Fighter, cframe: CFrame, size: Vector3)
+	local look = by.root.CFrame.LookVector
+	local direction = Vector3.new(look.X, 0, look.Z)
+	direction = if direction.Magnitude > 1e-3 then direction.Unit else Vector3.zAxis
+	local half = size / 2
+	for _, shot in shots do
+		local owner = shot.owner
+		if owner ~= by and owner.character ~= by.character then
+			local p = cframe:PointToObjectSpace(shot.position)
+			if math.abs(p.X) <= half.X and math.abs(p.Y) <= half.Y + 1.5 and math.abs(p.Z) <= half.Z then
+				owner:ProjectileDone(shot.hit.seq)
+				shot.owner = by
+				shot.direction = direction
+				shot.travelled = 0
+				-- Hits now count as the redirector's, with no follow-up bonus and no live move behind them.
+				shot.hit = table.clone(shot.hit)
+				shot.hit.seq = -shot.id
+				shot.hit.followUp = false
+				shot.hit.direction = direction
+				by.hooks.fx({
+					type = "Projectile",
+					id = shot.id,
+					attacker = by.character,
+					move = shot.hit.move.Id,
+					position = shot.position,
+					direction = direction,
+					speed = shot.speed,
+					range = shot.range,
+					ground = shot.ground,
+					redirected = true,
+				})
+			end
+		end
+	end
+end
+
 -- Every frame.
 function Projectiles.Step(dt: number)
 	if #shots == 0 then
@@ -185,6 +223,7 @@ function Projectiles.Step(dt: number)
 		end
 		overlap.FilterDescendantsInstances = others
 		local centre = if shot.ground then nextPosition + Vector3.new(0, 1.5, 0) else nextPosition
+		owner.hooks.sweep(owner, CFrame.new(centre), Vector3.one * (shot.radius * 2 + 1), shot.hit.move)
 		local done = false
 		for _, part in Workspace:GetPartBoundsInRadius(centre, shot.radius + 0.5, overlap) do
 			local model = part:FindFirstAncestorOfClass("Model")

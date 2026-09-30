@@ -10,8 +10,8 @@
 -- In burnout the SP bar turns orange and blinks (in steps) until the meter is full again.
 --
 -- Live slots: 1 (the sword's 1), 2 / 3 / 4 / R / G (the Lotus Fungus; their names follow your meter
--- stage, G's border lights up at a full meter), RMB (the dagger), Ctrl (race). Q (element) is a
--- placeholder until Wind exists. Above HP sits the Lotus meter: three segments (stages at 40 / 80),
+-- stage, G's border lights up at a full meter), Q (Wind's push / pull), RMB (the dagger), Ctrl
+-- (race). Above HP sits the Lotus meter: three segments (stages at 40 / 80),
 -- blinking cyan in the stage 3 form.
 -- Everything is sized for a 720 px tall screen and scaled to the real one (UIScale).
 
@@ -64,7 +64,7 @@ local BAR_W, BAR_H = 150, 16
 local HALF_GAP = 6
 local HALF_W, HALF_H = (BAR_W - HALF_GAP) / 2, 9
 
--- Placeholder skills (design plan keys) + the live race slot.
+-- The skill slots (design plan keys).
 -- cooldown: the CombatClient cooldown group the slot shows.
 type SlotSpec = { key: string, name: string, live: string?, cooldown: string? }
 local SLOTS: { SlotSpec } = {
@@ -73,7 +73,7 @@ local SLOTS: { SlotSpec } = {
 	{ key = "3", name = "Spore", live = "Magic", cooldown = "Lotus.Three" },
 	{ key = "4", name = "Grab", live = "Magic", cooldown = "Lotus.Four" },
 	{ key = "R", name = "Heal / Rip", live = "Magic", cooldown = "Lotus.R" },
-	{ key = "Q", name = "Element" },
+	{ key = "Q", name = "Push / Pull", live = "Element", cooldown = "Wind.Q" },
 	{ key = "G", name = "Form", live = "Magic", cooldown = "Lotus.G" },
 	{ key = "RMB", name = "Dagger", live = "Secondary", cooldown = "Dagger" },
 	{ key = "Ctrl", name = "Race", live = "Race" },
@@ -561,21 +561,25 @@ local function update()
 		local state = moth:GetState()
 		charging = state == "Charging"
 		local flight = moth:GetFlight()
-		raceSlot.name.Text = if state == "Hip" or state == "Charging" then "Lantern" else "Fly"
-		local grab = moth:GetGrabCooldown()
-		if state == "Hip" and grab > 0 then
-			raceSlot.shade.Size = UDim2.fromScale(1, grab / math.max(Config.LanternGrabCooldown, 1e-3))
-			raceSlot.timer.Text = formatSeconds(grab)
+		local out = state ~= "Hip" and state ~= "Charging"
+		raceSlot.name.Text = if out and state ~= "Returning" then "Recall" else "Lantern"
+		-- No throwing yet: knocked down, or just back in hand.
+		local knock = moth:GetKnockLockout()
+		local lockout = moth:GetThrowLockout()
+		if lockout > 0 then
+			local lockTotal = if knock > 0 then Config.LanternKnockLockout else Config.LanternGrabCooldown
+			raceSlot.shade.Size = UDim2.fromScale(1, math.clamp(lockout / math.max(lockTotal, 1e-3), 0, 1))
+			raceSlot.timer.Text = formatSeconds(lockout)
 		else
 			raceSlot.shade.Size = UDim2.fromScale(1, 0)
 			raceSlot.timer.Text = ""
 		end
-		raceSlot.status.Text = if flight then "FLYING"
+		raceSlot.status.Text = if flight == "Free" then "FLYING"
 			elseif state == "Thrown" then "THROWN"
-			elseif state == "Suspended" then "HANGING"
-			elseif state == "Dropped" then "GRAB IT"
+			elseif state == "Suspended" then (if moth:InsideLight() then "HOLD SPACE" else "LIT")
+			elseif state == "Dropped" then (if knock > 0 then "KNOCKED" else "PICK UP")
+			elseif state == "Returning" then "RETURNING"
 			else ""
-		local out = state ~= "Hip" and state ~= "Charging"
 		core.BackgroundColor3 = if out then Color3.fromRGB(40, 70, 76) else MOTH_FILL
 		raceSlot.boxStroke.Color = if charging or flight then MOTH_FILL else SLOT_BORDER
 		raceSlot.boxStroke.Thickness = if charging or flight then 2 else 1

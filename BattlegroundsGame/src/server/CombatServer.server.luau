@@ -8,15 +8,18 @@
 --   * every frame: each fighter's timers, moves, hitboxes (HitResolver), stamina, build-up
 --   * gives every character the sword, the dagger (WeaponModels) and the Lotus Fungus (FungusParts)
 --     until the loadout menu exists
---   * flies projectiles (Projectiles: spores, the ground strand)
+--   * flies projectiles (Projectiles: spores, the ground strand; Wind's Q turns them around)
+--   * knocks down Moth lanterns caught in any attack's hitbox
 -- Clients only ask: "start this move", "F is down", "R let go", "tech roll", "I spent stamina".
 --
 -- Studio only: the Debug remote (test panel helpers) and hitbox broadcasting
 -- (ReplicatedStorage attribute "CombatShowHitboxes", toggled by the hitbox viewer in the settings menu).
 
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 
 local IS_STUDIO = RunService:IsStudio()
 
@@ -26,6 +29,7 @@ local WeaponModels = require(Combat:WaitForChild("WeaponModels"))
 local FighterCollision = require(Combat:WaitForChild("FighterCollision"))
 local FungusParts = require(Combat:WaitForChild("FungusParts"))
 local Config = require(Combat:WaitForChild("CombatConfig"))
+local MovementConfig = require(ReplicatedStorage:WaitForChild("Movement"):WaitForChild("MovementConfig"))
 
 local ServerCombat = script.Parent:WaitForChild("Combat")
 local Fighter = require(ServerCombat:WaitForChild("Fighter"))
@@ -42,6 +46,29 @@ local dummyByModel: { [Model]: Dummies.Dummy } = {}
 local function reject(player: Player, why: string)
 	if IS_STUDIO then
 		warn(string.format("[Combat] %s: %s", player.Name, why))
+	end
+end
+
+-- A Moth's lantern out of hand (thrown or hanging) inside an attack's hitbox is knocked down: its
+-- owner's client drops it (attribute KnockId) and it can't be thrown for LanternKnockLockout
+-- (LockUntil, server time; LanternServer refuses throws until then). Your own attacks don't count.
+local function knockLanterns(fighter: Fighter, cframe: CFrame, size: Vector3)
+	local mine = if fighter.player then fighter.player.UserId else nil
+	local half = size / 2 + Vector3.one * 0.5
+	local now = Workspace:GetServerTimeNow()
+	for _, lantern in CollectionService:GetTagged("MothLantern") do
+		local state = lantern:GetAttribute("State")
+		local core = if lantern:IsA("Model") then lantern.PrimaryPart else nil
+		local lockUntil = lantern:GetAttribute("LockUntil")
+		if core and (state == "Thrown" or state == "Suspended") and lantern:GetAttribute("OwnerUserId") ~= mine
+			and not (typeof(lockUntil) == "number" and lockUntil > now) then
+			local p = cframe:PointToObjectSpace(core.Position)
+			if math.abs(p.X) <= half.X and math.abs(p.Y) <= half.Y and math.abs(p.Z) <= half.Z then
+				lantern:SetAttribute("LockUntil", now + MovementConfig.LanternKnockLockout)
+				lantern:SetAttribute("KnockId", ((lantern:GetAttribute("KnockId") :: number?) or 0) + 1)
+				remotes.Fx:FireAllClients({ type = "LanternKnock", position = core.Position, attacker = fighter.character })
+			end
+		end
 	end
 end
 
@@ -85,6 +112,12 @@ local hooks: Fighter.Hooks = {
 	resolve = HitResolver.Resolve,
 	shoot = function(fighter: Fighter, run: Fighter.Run)
 		Projectiles.Fire(fighter, run)
+	end,
+	sweep = function(fighter: Fighter, cframe: CFrame, size: Vector3, move: Fighter.Move)
+		if move.Redirect then
+			Projectiles.Redirect(fighter, cframe, size)
+		end
+		knockLanterns(fighter, cframe, size)
 	end,
 }
 

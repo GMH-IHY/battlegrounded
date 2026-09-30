@@ -56,6 +56,10 @@ local S: { [string]: Entry } = {
 	FungusRip = { File = "projectileLinkFire.ogg", Id = "", Volume = 0.8, Speed = 0.7, Range = 80 },
 	FungusForm = { File = "heavenlyProjectileCharge.ogg", Id = "", Volume = 0.9, Speed = 0.5, Range = 160 },
 
+	-- WIND (placeholders from the existing files) -----------------------------------------------
+	WindGust = { File = "universeBigSwoosh.ogg", Id = "", Volume = 0.7, Speed = 0.8, Vary = 0.05, Range = 100 },
+	WindHit = { File = "universeSwoosh.ogg", Id = "", Volume = 0.7, Speed = 0.6, Vary = 0.05, Range = 90 },
+
 	-- PARKOUR ---------------------------------------------------------------------
 	WallRun = { File = "universeFootStepLoop.ogg", Id = "", Volume = 0.55, Speed = 2.0, Looped = true, Range = 60 },
 	WallKick = { File = "universeSwoosh.ogg", Id = "", Volume = 0.75, Vary = 0.05, Range = 80 },

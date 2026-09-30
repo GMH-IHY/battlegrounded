@@ -20,7 +20,7 @@ local Harness = require(testsFolder:WaitForChild("Harness"))
 local suitesFolder = testsFolder:WaitForChild("Suites")
 
 -- In the order they run. Slow suites are left out of "Run all".
-local ORDER = { "Animation", "Basics", "Dash", "Attacks", "Combat", "Lotus", "Landing", "WallHop", "Parkour", "Flow", "Truss", "Moth", "Performance", "ParkourSweep" }
+local ORDER = { "Animation", "Basics", "Dash", "Attacks", "Combat", "Lotus", "Wind", "Landing", "WallHop", "Parkour", "Flow", "Truss", "Moth", "Performance", "ParkourSweep" }
 local SLOW: { [string]: boolean } = { ParkourSweep = true }
 
 local suites: { Harness.Suite } = {}

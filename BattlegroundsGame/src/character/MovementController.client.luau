@@ -8,13 +8,14 @@
 -- Sprinting into obstacles vaults / climbs / slides automatically (AutoParkour). Shift: dash.
 -- Combat keys go to CombatClient (the server decides the hits): M1 (left click), M2 (right click,
 -- the dagger), 1 (the sword's 1), F (hold = block, press = parry try), and the Lotus Fungus: 2 / 3 / 4
--- (stab / spore / grab of your meter stage), R (hold = heal, tap = rip out), G (the stage 3 form).
+-- (stab / spore / grab of your meter stage), R (hold = heal, tap = rip out), G (the stage 3 form),
+-- and Wind: Q (push; with S held, pull).
 -- An attack during a side / back
 -- dash, late in a landing roll or in a Moth flight cuts straight into it, keeping your momentum; a
 -- front dash's (or a run's) M1 is the lunge. While the server has you stunned nothing moves you;
 -- Shift while knocked down is a tech roll.
--- Left Ctrl: race special (Moth: tap = wing flight, hold = charge + throw the lantern, press while it's in
--- the air = suspend it, hold with it away = fly to it / to a tagged opponent). Race specials spend Stamina.
+-- Left Ctrl: race special (Moth: tap = wing burst, hold = charge + throw the lantern, press with it out =
+-- recall it; hold Space in the air inside its light to fly). Race specials spend Stamina.
 -- Tab: shift lock (ShiftLock script).
 -- A fresh copy runs every time the character spawns.
 
@@ -61,6 +62,7 @@ local MAGIC_KEYS: { [Enum.KeyCode]: string } = {
 	[Enum.KeyCode.Four] = "Four",
 	[Enum.KeyCode.R] = "R",
 	[Enum.KeyCode.G] = "G",
+	[Enum.KeyCode.Q] = "Q", -- Wind (the element, not magic, but the same one-press attack key)
 }
 
 local character = script.Parent
@@ -271,6 +273,7 @@ Controls.Register(character, {
 		Four = magicPress("Four"),
 		R = magicPress("R"),
 		G = magicPress("G"),
+		Q = magicPress("Q"),
 	},
 	release = {
 		Jump = releaseJump,
@@ -288,6 +291,7 @@ Controls.Register(character, {
 		Four = nothing,
 		R = releaseR,
 		G = nothing,
+		Q = nothing,
 	},
 })
 

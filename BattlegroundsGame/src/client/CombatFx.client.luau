@@ -11,6 +11,8 @@
 --   block        blue-white plates and a flat guard plate in front of the blocker
 --   parry        a white flash plate and a ring that grows in steps
 --   status       the name over the target ("DRAFTED") and pale wind plates
+--   wind         Wind's Q: pale streaks across its cone, stepping outward (push) or inward (pull)
+--   lantern      a Moth lantern knocked out of the air: a cyan star
 --   hit pause    both characters' animations hold still for the hit's hitstop
 --   shake        the camera shakes in steps when your own character hits or is hit
 --   dagger       other characters draw the dagger for dagger moves (your own: CombatClient)
@@ -151,6 +153,27 @@ local function slash(root: BasePart, arc: string, heavy: boolean, hand: string)
 			{ cframe = at, size = Vector3.new(0.12, 0.4, length), transparency = 0.35 },
 			{ cframe = at, size = Vector3.new(0.1, 0.25, length), transparency = 0.6 },
 		}, true)
+		return
+	end
+	if arc == "Gust" or arc == "Draw" then
+		-- Wind: pale streaks across the cone (10 wide, 18 long), stepping outward (push) or in (pull).
+		local outward = arc == "Gust"
+		for i = 1, 6 do
+			local side = (i - 3.5) / 2.5 -- -1..1 across the cone
+			local height = ((i * 7) % 5 - 2) * 0.6
+			local streak = {}
+			for s = 0, 4 do
+				local along = if outward then 2 + s * 4 else 18 - s * 4
+				local spread = 0.25 + along / 18 * 0.75 -- the cone widens away from you
+				local at = base * CFrame.new(side * 5 * spread, height, -along) * CFrame.Angles(0, math.rad(-side * 20 * spread), 0)
+				table.insert(streak, {
+					cframe = at,
+					size = Vector3.new(0.08, 0.3, 2.2 + s * 0.4),
+					transparency = 0.25 + s * 0.15,
+				})
+			end
+			piece(WIND_COLOR, streak, true)
+		end
 		return
 	end
 	local shape = ARCS[arc]
@@ -442,6 +465,12 @@ remotes.Fx.OnClientEvent:Connect(function(info: { [string]: any })
 				end
 				piece(WIND_COLOR, steps)
 			end
+		end
+	elseif kind == "LanternKnock" then
+		-- A Moth's lantern knocked out of the air.
+		star(position, Color3.fromRGB(120, 240, 255), 4, 1.4)
+		if attacker then
+			Sfx.PlayRemote(attacker, "LanternImpact", 1, 1, position)
 		end
 	end
 end)
